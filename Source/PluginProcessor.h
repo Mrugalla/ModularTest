@@ -123,9 +123,8 @@ struct ModularTestAudioProcessor :
 	void getStateInformation (juce::MemoryBlock& destData) override;
     void setStateInformation (const void* data, int sizeInBytes) override;
 
-    juce::AudioProcessorValueTreeState apvts;
-	ReleasePool releasePool;
+	juce::AudioProcessorValueTreeState apvts;
 	ThreadSafeObject<modSys2::Matrix> matrix2;
-
+	
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (ModularTestAudioProcessor)
 };

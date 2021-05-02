@@ -13,12 +13,11 @@ ModularTestAudioProcessor::ModularTestAudioProcessor()
                      #endif
                        ),
     apvts(*this, nullptr, "Params", param::createParameters(apvts)),
-    releasePool(),
-    matrix2(releasePool, std::make_shared<modSys2::Matrix>(apvts))
+    matrix2(std::make_shared<modSys2::Matrix>(apvts))
 #endif
 {
     auto m = matrix2.load();
-    releasePool.startTimer(10000);
+    //releasePool.startTimer(10000);
     m->addMacroModulator(param::getID(param::ID::Macro0));
     m->addMacroModulator(param::getID(param::ID::Macro1));
     m->addMacroModulator(param::getID(param::ID::Macro2));
