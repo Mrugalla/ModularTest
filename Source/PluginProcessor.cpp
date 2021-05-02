@@ -12,7 +12,7 @@ ModularTestAudioProcessor::ModularTestAudioProcessor()
                        .withOutput ("Output", juce::AudioChannelSet::stereo(), true)
                      #endif
                        ),
-    apvts(*this, nullptr, "Params", param::createParameters()),
+    apvts(*this, nullptr, "Params", param::createParameters(apvts)),
     releasePool(),
     matrix2(releasePool, std::make_shared<modSys2::Matrix>(apvts))
 #endif
@@ -23,6 +23,19 @@ ModularTestAudioProcessor::ModularTestAudioProcessor()
     m->addMacroModulator(param::getID(param::ID::Macro1));
     m->addMacroModulator(param::getID(param::ID::Macro2));
     m->addMacroModulator(param::getID(param::ID::Macro3));
+
+    m->addEnvelopeFollowerModulator(
+        param::getID(param::ID::EnvFolAtk),
+        param::getID(param::ID::EnvFolRls),
+        0
+    );
+
+    m->addPhaseModulator(
+        param::getID(param::ID::PhaseSync),
+        param::getID(param::ID::PhaseRate),
+        juce::NormalisableRange<float>(.1f, 20.f),
+        0
+    );
 }
 
 ModularTestAudioProcessor::~ModularTestAudioProcessor()
@@ -91,10 +104,9 @@ void ModularTestAudioProcessor::changeProgramName (int index, const juce::String
 {
 }
 
-//==============================================================================
-void ModularTestAudioProcessor::prepareToPlay (double sampleRate, int samplesPerBlock)
-{
+void ModularTestAudioProcessor::prepareToPlay (double sampleRate, int samplesPerBlock) {
     auto m = matrix2.load();
+    m->setSampleRate(sampleRate);
     m->setBlockSize(samplesPerBlock);
 }
 

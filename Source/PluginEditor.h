@@ -20,14 +20,22 @@ protected:
     ModularTestAudioProcessor& audioProcessor;
 
     juce::Label macrosLabel;
-    modSys2Editor::Parameter macro0P, macro1P, macro2P, macro3P;
+    modSys2Editor::ParameterExample macro0P, macro1P, macro2P, macro3P;
 
     juce::Label globalsLabel;
-    modSys2Editor::Parameter depthP, modulesMixP;
+    modSys2Editor::ParameterExample depthP, modulesMixP;
+
+    modSys2Editor::ParameterExample envFolAtkP, envFolRlsP;
+    modSys2Editor::EnvelopeFollowerDisplay envFolDisplay;
+
+    modSys2Editor::ParameterExample phaseSyncP, phaseRateP;
+    modSys2Editor::PhaseDisplay phaseDisplay;
 
     juce::Label modulesLabel;
 
     modSys2Editor::ModulatorDragger macro0Dragger, macro1Dragger, macro2Dragger, macro3Dragger;
+    modSys2Editor::ModulatorDragger envFolDragger;
+    modSys2Editor::ModulatorDragger phaseDragger;
 
     void paint(juce::Graphics&) override;
     void resized() override;

@@ -4,6 +4,8 @@
 #include <array>
 
 namespace modSys2 {
+	static float msInSamples(float ms, float Fs) { return ms* Fs * .001f; }
+
 	/*
 	* makes sure things can be identified
 	*/
@@ -18,6 +20,7 @@ namespace modSys2 {
 		bool operator==(const Identifiable& other) const { return id == other.id; }
 		juce::Identifier id;
 	};
+
 	/*
 	* base class for everything that has a block
 	*/
@@ -61,31 +64,38 @@ namespace modSys2 {
 		Parameter(juce::AudioProcessorValueTreeState& apvts, const juce::String& pID) :
 			Identifiable(pID),
 			parameter(apvts.getRawParameterValue(pID)),
+			rap(*apvts.getParameter(pID)),
 			sumValue(0),
 			block(),
-			smoothing()
+			smoothing(),
+			Fs(1.f)
 		{}
 		// SET
+		void setSampleRate(double sampleRate) { Fs = static_cast<float>(sampleRate); }
 		void setBlockSize(const int b) { block.setBlockSize(b); }
 		// PROCESS
 		void processBlock(const int numSamples) {
-			const auto value = parameter->load();
+			const auto value = rap.convertTo0to1(parameter->load());
 			smoothing.processBlock(block, value, numSamples);
 		}
 		void storeSumValue(const int numSamples) { sumValue.store(block[numSamples - 1]); }
 		float& operator[](const float i) { return block[i]; }
 		void limit(const int numSamples) { block.limit(numSamples); }
-		// GET
+		// GET NORMAL
 		float getSumValue() const { return sumValue.load(); }
 		bool operator==(const Parameter& other) { return id == other.id; }
 		const float& operator[](const float i) const { return block[i]; }
 		float* data() { return block.data(); }
 		const float* data() const { return block.data(); }
+		// GET CONVERTED
+		float denormalized(const int s) const { return rap.convertFrom0to1(block[s]); }
 	protected:
 		std::atomic<float>* parameter;
+		const juce::RangedAudioParameter& rap;
 		std::atomic<float> sumValue;
 		Block block;
 		Lowpass smoothing;
+		float Fs;
 	};
 
 	/*
@@ -119,10 +129,12 @@ namespace modSys2 {
 	{
 		Modulator(const juce::Identifier& mID) :
 			Identifiable(mID),
+			outValue(0.f),
 			destinations()
 		{}
 		Modulator(const juce::String& mID) :
 			Identifiable(mID),
+			outValue(0.f),
 			destinations()
 		{}
 		// SET
@@ -131,7 +143,7 @@ namespace modSys2 {
 			if (hasDestination(p.id)) return;
 			destinations.push_back(std::make_shared<Destination>(
 				p, atten
-			));
+				));
 		}
 		void removeDestination(const Parameter& p) {
 			for (auto d = 0; d < destinations.size(); ++d) {
@@ -153,6 +165,7 @@ namespace modSys2 {
 			for (auto& destination : destinations)
 				destination.get()->processBlock(block, numSamples);
 		}
+		void storeOutValue(const Block& block, const int numSamples){ outValue.store(block[numSamples - 1]); }
 		// GET
 		bool hasDestination(const juce::Identifier& pID) const {
 			const auto d = getDestination(pID);
@@ -171,8 +184,10 @@ namespace modSys2 {
 			return d->get()->getValue();
 		}
 		const std::vector<std::shared_ptr<Destination>>& getDestinations() const { return destinations; }
+		float getOutValue() const { return outValue.load(); }
 	protected:
 		std::vector<std::shared_ptr<Destination>> destinations;
+		std::atomic<float> outValue;
 		float Fs;
 	};
 
@@ -196,14 +211,67 @@ namespace modSys2 {
 	};
 
 	/*
-	* a phase modulator
+	* an envelope follower modulator
+	*/
+	struct EnvelopeFollowerModulator :
+		public Modulator
+	{
+		EnvelopeFollowerModulator(const juce::String& mID, const Parameter& atkParam, const Parameter& rlsParam) :
+			Modulator(mID),
+			attackParameter(atkParam),
+			releaseParameter(rlsParam),
+			env(0.f)
+		{
+		}
+		// PROCESS
+		void processBlock(const juce::AudioBuffer<float>& audioBuffer, Block& block) override {
+			const auto numSamples = audioBuffer.getNumSamples();
+			const auto lastSample = numSamples - 1;
+			getSamples(audioBuffer, block);
+			const auto atk = attackParameter.denormalized(lastSample);
+			const auto rls = releaseParameter.denormalized(lastSample);
+			const auto atkSpeed = 1.f / msInSamples(atk, Fs);
+			const auto rlsSpeed = 1.f / msInSamples(rls, Fs);
+			for (auto s = 0; s < numSamples; ++s) {
+				if (env < block[s])
+					env += atkSpeed * (1.f - env);
+				else if (env > block[s])
+					env += rlsSpeed * (0.f - env);
+				block[s] = env;
+			}
+			storeOutValue(block, numSamples);
+		}
+	protected:
+		const Parameter& attackParameter;
+		const Parameter& releaseParameter;
+		float env;
+	private:
+		inline void getSamples(const juce::AudioBuffer<float>& audioBuffer, Block& block) {
+			const auto numSamples = audioBuffer.getNumSamples();
+			const auto numChannels = audioBuffer.getNumChannels();
+			const auto samples = audioBuffer.getArrayOfReadPointers();
+			const auto chInv = 1.f / audioBuffer.getNumChannels();
+			for (auto s = 0; s < numSamples; ++s)
+				block[s] = samples[0][s];
+			for (auto ch = 1; ch < numChannels; ++ch)
+				for (auto s = 0; s < numSamples; ++s)
+					block[s] += samples[ch][s];
+			for (auto s = 0; s < numSamples; ++s)
+				block[s] = std::abs(block[s] * chInv);
+		}
+	};
+
+	/*
+	* a phase modulator, not tested yet
 	*/
 	struct PhaseModulator :
 		public Modulator
 	{
-		PhaseModulator(const juce::String& mID, const Parameter& rateParam) :
+		PhaseModulator(const juce::String& mID, const Parameter& syncParam, const Parameter& rateParam, const juce::NormalisableRange<float>& free) :
 			Modulator(mID),
+			syncParameter(syncParam),
 			rateParameter(rateParam),
+			freeRange(free),
 			fsInv(0.f), phase(0.f)
 		{}
 		// SET
@@ -216,15 +284,24 @@ namespace modSys2 {
 		// PROCESS
 		void processBlock(const juce::AudioBuffer<float>& audioBuffer, Block& block) override {
 			const auto numSamples = audioBuffer.getNumSamples();
+			const auto lastSample = numSamples - 1;
+
+			const auto rate = syncParameter[0] < .5f ?
+				freeRange.convertFrom0to1(rateParameter[lastSample]) :
+				rateParameter[lastSample]; // put beat sync here
+			const auto inc = rate * fsInv;
 			for (auto s = 0; s < numSamples; ++s) {
-				const auto inc = rateParameter[s] * fsInv;
 				phase += inc;
-				if (phase >= 1.f) --phase;
+				if (phase >= 1.f)
+					--phase;
 				block[s] = phase;
 			}
+			storeOutValue(block, numSamples);
 		}
 	protected:
+		const Parameter& syncParameter;
 		const Parameter& rateParameter;
+		const juce::NormalisableRange<float> freeRange;
 		float fsInv, phase;
 	};
 
@@ -275,7 +352,10 @@ namespace modSys2 {
 			selectedModulator(other->selectedModulator)
 		{}
 		// SET
-		void setSampleRate(double sampleRate) { for (auto& m : modulators) m.get()->setSampleRate(sampleRate); }
+		void setSampleRate(double sampleRate) {
+			for (auto& p : parameters) p.get()->setSampleRate(sampleRate);
+			for (auto& m : modulators) m.get()->setSampleRate(sampleRate);
+		}
 		void setBlockSize(const int b) {
 			block.setBlockSize(b);
 			for (auto& p : parameters)
@@ -332,6 +412,18 @@ namespace modSys2 {
 			const auto p = getParameter(pID)->get();
 			modulators.push_back(std::make_shared<MacroModulator>(*p));
 		}
+		void addEnvelopeFollowerModulator(const juce::Identifier& atkPID, const juce::Identifier& rlsPID, int envFolIdx) {
+			const auto atkP = getParameter(atkPID)->get();
+			const auto rlsP = getParameter(rlsPID)->get();
+			const juce::String idString("EnvFol" + envFolIdx);
+			modulators.push_back(std::make_shared<EnvelopeFollowerModulator>(idString, *atkP, *rlsP));
+		}
+		void addPhaseModulator(const juce::Identifier& syncPID, const juce::Identifier& ratePID, const juce::NormalisableRange<float> freeRange, int phaseIdx) {
+			const auto syncP = getParameter(syncPID)->get();
+			const auto rateP = getParameter(ratePID)->get();
+			const juce::String idString("Phase" + phaseIdx);
+			modulators.push_back(std::make_shared<PhaseModulator>(idString, *syncP, *rateP, freeRange));
+		}
 		// MODIFY / REPLACE
 		void selectModulator(const juce::Identifier& mID) { selectedModulator = getModulator(mID)->get()->id; }
 		void addDestination(const juce::Identifier& mID, const juce::Identifier& pID, const float atten = 1.f) {
@@ -379,7 +471,8 @@ namespace modSys2 {
 
 	/*
 	* to do:
-	* make repository of this thing
-	* implement modular value strings for parameters
+	* envelopeFollowerModulator
+	*	implement phase modulator
+	*		how to handle dynamic param ranges
 	*/
 }

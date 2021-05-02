@@ -23,7 +23,7 @@ namespace modSys2Editor {
 			Parameter& parameter;
 			float dragStartValue;
 
-			void paint(juce::Graphics& g) {
+			void paint(juce::Graphics& g) override {
 				g.setColour(juce::Colours::limegreen);
 				g.drawFittedText("M", getLocalBounds(), juce::Justification::centred, 1);
 				g.drawEllipse(getLocalBounds().toFloat(), 1);
@@ -63,7 +63,6 @@ namespace modSys2Editor {
 			attach(parameter, [this](float) { repaint(); }, nullptr),
 			linkedModulatorID(),
 			modGainDragger(p, *this),
-			dragStartValue(0),
 			curModSumValue(0),
 			sumValue(0)
 		{
@@ -97,14 +96,38 @@ namespace modSys2Editor {
 		juce::ParameterAttachment attach;
 		juce::Identifier linkedModulatorID;
 		SelectedModulatorGainDragger modGainDragger;
-		float dragStartValue, curModSumValue, sumValue;
+		float curModSumValue, sumValue;
+
+		void mouseDown(const juce::MouseEvent&) override { selectLinkedModulator(); }
+
+		void selectLinkedModulator() {
+			if (linkedModulatorID.isValid()) {
+				const auto matrix = processor.matrix2.load();
+				matrix.get()->selectModulator(linkedModulatorID);
+			}
+		}
+
+		JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(Parameter)
+	};
+
+	/*
+	* a basic plugin parameter with some look and feel
+	*/
+	struct ParameterExample :
+		public Parameter
+	{
+		ParameterExample(ModularTestAudioProcessor& p, const juce::String& pID, const juce::String& linkedModID = "") :
+			Parameter(p, pID, linkedModID)
+		{ }
+	protected:
+		float dragStartValue;
 
 		void paint(juce::Graphics& g) override {
 			const auto width = static_cast<float>(getWidth());
 			const auto height = static_cast<float>(getHeight());
-			g.setColour(juce::Colours::blue);
+			g.setColour(juce::Colours::darkslateblue);
 			g.drawRect(0.f, 0.f, width, height);
-			
+
 			const auto value = parameter.getValue();
 			const auto x = value * width;
 			juce::Rectangle<float> valueArea(0.f, 0.f, x, height);
@@ -117,7 +140,7 @@ namespace modSys2Editor {
 				startX += rangeX;
 				rangeX *= -1.f;
 			}
-			g.setColour(juce::Colour(0x44ffffff));
+			g.setColour(juce::Colours::rebeccapurple);
 			juce::Rectangle<float> rangeArea(startX, 0.f, rangeX, height);
 			g.fillRect(rangeArea);
 
@@ -125,16 +148,24 @@ namespace modSys2Editor {
 			g.drawVerticalLine(sumX, 0.f, height);
 			g.drawVerticalLine(sumX - 1, 0.f, height);
 			g.drawVerticalLine(sumX + 1, 0.f, height);
+			g.drawVerticalLine(x - 1, 0.f, height);
+			g.drawVerticalLine(x, 0.f, height);
+			g.drawVerticalLine(x + 1, 0.f, height);
 
-			const auto valueStr = parameter.getName(64) + ":\n" + juce::String(value);
+			const auto sumValueX = sumValue * width;
+			g.setColour(juce::Colours::purple);
+			g.drawVerticalLine(sumValueX - 1, 0.f, height);
+			g.drawVerticalLine(sumValueX, 0.f, height);
+			g.drawVerticalLine(sumValueX + 1, 0.f, height);
+
+			const auto actualValue = parameter.getCurrentValueAsText();
+			const auto valueStr = parameter.getName(64) + ":\n" + actualValue + "\nsum: " + juce::String(sumValue).substring(0, 4);
 			g.setColour(juce::Colours::white);
 			g.drawFittedText(valueStr, getLocalBounds(), juce::Justification::centredTop, 2);
 		}
-		void resized() override {
-			modGainDragger.setBounds(0, 0, getWidth() / 8, getHeight() / 8);
-		}
-		void mouseDown(const juce::MouseEvent&) override {
-			selectLinkedModulator();
+		void resized() override { modGainDragger.setBounds(0, 0, getWidth() / 6, getHeight() / 6); }
+		void mouseDown(const juce::MouseEvent& evt) override {
+			Parameter::mouseDown(evt);
 			dragStartValue = parameter.getValue();
 			attach.beginGesture();
 		}
@@ -142,13 +173,13 @@ namespace modSys2Editor {
 			const auto distance = evt.getDistanceFromDragStartX();
 			const auto v = distance / static_cast<float>(getWidth());
 			const auto value = juce::jlimit(0.f, 1.f, dragStartValue + v);
-			attach.setValueAsPartOfGesture(value);
+			attach.setValueAsPartOfGesture(parameter.convertFrom0to1(value));
 		}
 		void mouseUp(const juce::MouseEvent& evt) override {
-			if(evt.mouseWasDraggedSinceMouseDown()) {}
+			if (evt.mouseWasDraggedSinceMouseDown()) {}
 			else {
 				const auto value = evt.position.x / static_cast<float>(getWidth());
-				attach.setValueAsPartOfGesture(value);
+				attach.setValueAsPartOfGesture(parameter.convertFrom0to1(value));
 			}
 			attach.endGesture();
 		}
@@ -160,7 +191,7 @@ namespace modSys2Editor {
 			}
 		}
 
-		JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(Parameter)
+		JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(ParameterExample)
 	};
 
 	/*
@@ -225,11 +256,11 @@ namespace modSys2Editor {
 		void paint(juce::Graphics& g) override {
 			if (hoveredParameter == nullptr)
 				if (selected)
-					g.setColour(juce::Colours::limegreen);
+					g.setColour(juce::Colours::rebeccapurple);
 				else
-					g.setColour(juce::Colours::blue);
+					g.setColour(juce::Colours::darkslateblue);
 			else
-				g.setColour(juce::Colours::yellow);
+				g.setColour(juce::Colours::blue.brighter(.4f));
 			
 			const auto bounds = getLocalBounds().toFloat();
 			g.drawRoundedRectangle(bounds, 2, 2);
@@ -249,5 +280,84 @@ namespace modSys2Editor {
 		}
 
 		JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(ModulatorDragger)
+	};
+
+	/*
+	* displays envelope follower data
+	*/
+	struct EnvelopeFollowerDisplay :
+		public juce::Component,
+		public modSys2::Identifiable
+	{
+		EnvelopeFollowerDisplay(int envFolIdx) :
+			juce::Component(),
+			modSys2::Identifiable(juce::String("EnvFol" + envFolIdx)),
+			curValue(0.f)
+		{}
+		void timerCallback(const std::shared_ptr<modSys2::Matrix>& matrix) {
+			auto newValue = matrix->getModulator(id)->get()->getOutValue();
+			if (curValue != newValue) {
+				curValue = newValue;
+				repaint();
+			}
+		}
+	protected:
+		float curValue;
+		
+		void paint(juce::Graphics& g) override {
+			const auto height = static_cast<float>(getHeight());
+			const auto width = static_cast<float>(getWidth());
+			g.setColour(juce::Colours::rebeccapurple);
+			g.drawRect(getLocalBounds());
+			const auto y = height - curValue * height;
+			g.drawHorizontalLine(y, 0.f, width);
+			g.drawHorizontalLine(y - 1, 0.f, width);
+			g.drawHorizontalLine(y + 1, 0.f, width);
+		}
+		JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(EnvelopeFollowerDisplay)
+	};
+
+	/*
+	* 
+	*/
+	struct PhaseDisplay :
+		public juce::Component,
+		public modSys2::Identifiable
+	{
+		PhaseDisplay(int phaseID) :
+			juce::Component(),
+			modSys2::Identifiable(juce::String("Phase" + phaseID)),
+			img(juce::Image::RGB, 1, 1, true),
+			curValue(0.f)
+		{
+			
+		}
+		void timerCallback(const std::shared_ptr<modSys2::Matrix>& matrix) {
+			auto newValue = matrix->getModulator(id)->get()->getOutValue();
+			if (curValue != newValue) {
+				curValue = newValue;
+				repaint();
+			}
+		}
+	protected:
+		juce::Image img;
+		float curValue;
+		void resized() override { img = img.rescaled(getWidth(), getHeight(), juce::Graphics::lowResamplingQuality).createCopy(); }
+
+		void paint(juce::Graphics& g) override {
+			juce::Graphics g0{ img };
+			const auto width = static_cast<float>(getWidth());
+			const auto height = static_cast<float>(getHeight());
+			g0.fillAll(juce::Colour(0x11000000));
+			g0.setColour(juce::Colours::rebeccapurple);
+			g0.drawRect(getLocalBounds());
+			const auto x = curValue * width;
+			const auto y = height - curValue * height;
+			juce::Rectangle<float> valuePt(x - 1, y - 1, 3, 3);
+			g0.fillEllipse(valuePt);
+
+			g.drawImageAt(img, 0, 0, false);
+		}
+		JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(PhaseDisplay)
 	};
 }

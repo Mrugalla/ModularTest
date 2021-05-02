@@ -17,12 +17,22 @@ ModularTestAudioProcessorEditor::ModularTestAudioProcessorEditor(ModularTestAudi
     depthP(audioProcessor, param::getID(param::ID::Depth)),
     modulesMixP(audioProcessor, param::getID(param::ID::ModulesMix)),
 
+    envFolAtkP(audioProcessor, param::getID(param::ID::EnvFolAtk)),
+    envFolRlsP(audioProcessor, param::getID(param::ID::EnvFolRls)),
+    envFolDisplay(0),
+
+    phaseSyncP(audioProcessor, param::getID(param::ID::PhaseSync)),
+    phaseRateP(audioProcessor, param::getID(param::ID::PhaseRate)),
+    phaseDisplay(0),
+
     modulesLabel("Modules", "Modules"),
 
     macro0Dragger(audioProcessor, param::getID(param::ID::Macro0), { &depthP, &modulesMixP }),
     macro1Dragger(audioProcessor, param::getID(param::ID::Macro1), { &depthP, &modulesMixP }),
     macro2Dragger(audioProcessor, param::getID(param::ID::Macro2), { &depthP, &modulesMixP }),
-    macro3Dragger(audioProcessor, param::getID(param::ID::Macro3), { &depthP, &modulesMixP })
+    macro3Dragger(audioProcessor, param::getID(param::ID::Macro3), { &depthP, &modulesMixP }),
+    envFolDragger(audioProcessor, juce::String("EnvFol" + 0), { &depthP, &modulesMixP }),
+    phaseDragger(audioProcessor, juce::String("Phase" + 0), { &depthP, &modulesMixP })
 {
     addAndMakeVisible(macrosLabel);
     macrosLabel.setJustificationType(juce::Justification::centred);
@@ -36,8 +46,15 @@ ModularTestAudioProcessorEditor::ModularTestAudioProcessorEditor(ModularTestAudi
 
     addAndMakeVisible(depthP); addAndMakeVisible(modulesMixP);
 
+    addAndMakeVisible(envFolAtkP); addAndMakeVisible(envFolRlsP);
+    addAndMakeVisible(envFolDisplay);
+
+    addAndMakeVisible(phaseSyncP); addAndMakeVisible(phaseRateP);
+    addAndMakeVisible(phaseDisplay);
+
     addAndMakeVisible(macro0Dragger); addAndMakeVisible(macro1Dragger);
     addAndMakeVisible(macro2Dragger); addAndMakeVisible(macro3Dragger);
+    addAndMakeVisible(envFolDragger); addAndMakeVisible(phaseDragger);
 
     setOpaque(true);
     setResizable(true, true);
@@ -83,6 +100,32 @@ void ModularTestAudioProcessorEditor::resized() {
     depthP.setBounds(maxQuadIn(juce::Rectangle<float>(x, y, width, height)).reduced(10).toNearestInt());
     y += height;
     modulesMixP.setBounds(maxQuadIn(juce::Rectangle<float>(x, y, width, height)).reduced(10).toNearestInt());
+
+    x += width;
+    y = 0.f;
+
+    const auto modulesX = x;
+    const auto moduleHeight = height / 2.f;
+    auto moduleObjWidth = width / 2.f;
+    envFolDragger.setQBounds(maxQuadIn(juce::Rectangle<float>(x, y, moduleObjWidth, moduleHeight)).toNearestInt());
+    x += moduleObjWidth;
+    envFolDisplay.setBounds(maxQuadIn(juce::Rectangle<float>(x, y, moduleObjWidth, moduleHeight)).toNearestInt());
+    x += moduleObjWidth;
+    envFolAtkP.setBounds(maxQuadIn(juce::Rectangle<float>(x, y, moduleObjWidth, moduleHeight)).toNearestInt());
+    x += moduleObjWidth;
+    envFolRlsP.setBounds(maxQuadIn(juce::Rectangle<float>(x, y, moduleObjWidth, moduleHeight)).toNearestInt());
+    
+    x = modulesX;
+    y += moduleHeight;
+
+    phaseDragger.setQBounds(maxQuadIn(juce::Rectangle<float>(x, y, moduleObjWidth, moduleHeight)).toNearestInt());
+    x += moduleObjWidth;
+    phaseDisplay.setBounds(maxQuadIn(juce::Rectangle<float>(x, y, moduleObjWidth, moduleHeight)).toNearestInt());
+    x += moduleObjWidth;
+    phaseSyncP.setBounds(maxQuadIn(juce::Rectangle<float>(x, y, moduleObjWidth, moduleHeight)).toNearestInt());
+    x += moduleObjWidth;
+    phaseRateP.setBounds(maxQuadIn(juce::Rectangle<float>(x, y, moduleObjWidth, moduleHeight)).toNearestInt());
+
 }
 
 void ModularTestAudioProcessorEditor::timerCallback() {
@@ -94,4 +137,10 @@ void ModularTestAudioProcessorEditor::timerCallback() {
 
     macro0Dragger.timerCallback(matrix); macro1Dragger.timerCallback(matrix);
     macro2Dragger.timerCallback(matrix); macro3Dragger.timerCallback(matrix);
+
+    envFolAtkP.timerCallback(matrix); envFolRlsP.timerCallback(matrix);
+    envFolDisplay.timerCallback(matrix); envFolDragger.timerCallback(matrix);
+
+    phaseSyncP.timerCallback(matrix); phaseRateP.timerCallback(matrix);
+    phaseDisplay.timerCallback(matrix); phaseDragger.timerCallback(matrix);
 }
