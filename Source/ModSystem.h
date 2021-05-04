@@ -4,6 +4,7 @@
 #include <array>
 
 namespace modSys2 {
+	static constexpr float pi = 3.14159265359f;
 	static float msInSamples(float ms, float Fs) { return ms* Fs * .001f; }
 
 	/*
@@ -56,6 +57,58 @@ namespace modSys2 {
 	};
 
 	/*
+	* parameter smoothing by interpolating with a sine wave
+	*/
+	class Smoothing2 {
+	public:
+		Smoothing2() :
+			env(0.f),
+			startValue(0.f), endValue(0.f), rangeValue(0.f),
+			idx(0.f), length(22050.f),
+			isWorking(false)
+		{}
+		void processBlock(Block& block, const float dest, const int numSamples) {
+			if (!isWorking) {
+				if (env == dest) {
+					for (auto s = 0; s < numSamples; ++s)
+						block[s] = dest;
+					return;
+				}
+				setNewDestination(dest);
+			}
+			processWork(block, dest, numSamples);
+		}
+	protected:
+		float env, startValue, endValue, rangeValue, idx, length;
+		bool isWorking;
+
+		void setNewDestination(const float dest) {
+			startValue = env;
+			endValue = dest;
+			rangeValue = endValue - startValue;
+			idx = 0.f;
+			isWorking = true;
+		}
+		void processWork(Block& block, const float dest, const int numSamples) {
+			for (auto s = 0; s < numSamples; ++s) {
+				if (idx >= length) {
+					if (dest != endValue)
+						setNewDestination(dest);
+					else {
+						for (auto s1 = s; s1 < numSamples; ++s1)
+							block[s1] = endValue;
+						isWorking = false;
+						return;
+					}
+				}
+				const auto curve = .5f - std::cos(idx * pi / length) * .5f;
+				block[s] = env = startValue + curve * rangeValue;
+				++idx;
+			}
+		}
+	};
+
+	/*
 	* a parameter, its block and a lowpass filter
 	*/
 	struct Parameter :
@@ -75,8 +128,8 @@ namespace modSys2 {
 		void setBlockSize(const int b) { block.setBlockSize(b); }
 		// PROCESS
 		void processBlock(const int numSamples) {
-			const auto value = rap.convertTo0to1(parameter->load());
-			smoothing.processBlock(block, value, numSamples);
+			const auto nextValue = rap.convertTo0to1(parameter->load());
+			smoothing.processBlock(block, nextValue, numSamples);
 		}
 		void storeSumValue(const int numSamples) { sumValue.store(block[numSamples - 1]); }
 		float& operator[](const float i) { return block[i]; }
@@ -94,7 +147,7 @@ namespace modSys2 {
 		const juce::RangedAudioParameter& rap;
 		std::atomic<float> sumValue;
 		Block block;
-		Lowpass smoothing;
+		Smoothing2 smoothing;
 		float Fs;
 	};
 

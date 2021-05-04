@@ -8,7 +8,7 @@ struct ReleasePool :
         pool(),
         mutex()
     {}
-    template <typename T>
+    template<typename T>
     void add(std::shared_ptr<T>& object) {
         if (!object) return;
         const juce::ScopedLock lock(mutex);
