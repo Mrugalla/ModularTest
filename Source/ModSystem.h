@@ -5,7 +5,7 @@
 
 namespace modSys2 {
 	static constexpr float pi = 3.14159265359f;
-	static float msInSamples(float ms, float Fs) { return ms* Fs * .001f; }
+	static float msInSamples(float ms, float Fs) { return ms * Fs * .001f; }
 
 	/*
 	* makes sure things can be identified
@@ -67,15 +67,15 @@ namespace modSys2 {
 			idx(0.f), length(22050.f),
 			isWorking(false)
 		{}
+		void setLength(const float samples) { length = samples; }
 		void processBlock(Block& block, const float dest, const int numSamples) {
 			if (!isWorking) {
-				if (env == dest) {
-					for (auto s = 0; s < numSamples; ++s)
-						block[s] = dest;
-					return;
-				}
+				if (env == dest)
+					return bypass(block, dest, numSamples);
 				setNewDestination(dest);
 			}
+			else if (length == 0)
+				return bypass(block, dest, numSamples);
 			processWork(block, dest, numSamples);
 		}
 	protected:
@@ -106,6 +106,10 @@ namespace modSys2 {
 				++idx;
 			}
 		}
+		void bypass(Block& block, const float dest, const int numSamples) {
+			for (auto s = 0; s < numSamples; ++s)
+				block[s] = dest;
+		}
 	};
 
 	/*
@@ -126,6 +130,7 @@ namespace modSys2 {
 		// SET
 		void setSampleRate(double sampleRate) { Fs = static_cast<float>(sampleRate); }
 		void setBlockSize(const int b) { block.setBlockSize(b); }
+		void setSmoothingLengthInSamples(const float length) { smoothing.setLength(length); }
 		// PROCESS
 		void processBlock(const int numSamples) {
 			const auto nextValue = rap.convertTo0to1(parameter->load());
@@ -281,16 +286,19 @@ namespace modSys2 {
 			const auto numSamples = audioBuffer.getNumSamples();
 			const auto lastSample = numSamples - 1;
 			getSamples(audioBuffer, block);
-			const auto atk = attackParameter.denormalized(lastSample);
-			const auto rls = releaseParameter.denormalized(lastSample);
-			const auto atkSpeed = 1.f / msInSamples(atk, Fs);
-			const auto rlsSpeed = 1.f / msInSamples(rls, Fs);
+			const auto atkInMs = attackParameter.denormalized(lastSample);
+			const auto rlsInMs = releaseParameter.denormalized(lastSample);
+			const auto atkInSamples = msInSamples(atkInMs, Fs);
+			const auto rlsInSamples = msInSamples(rlsInMs, Fs);
+			const auto atkSpeed = 1.f / atkInSamples;
+			const auto rlsSpeed = 1.f / rlsInSamples;
+			const auto gain = makeAutoGain(atkSpeed, rlsSpeed);
 			for (auto s = 0; s < numSamples; ++s) {
 				if (env < block[s])
-					env += atkSpeed * (1.f - env);
+					env += atkSpeed * (block[s] - env);
 				else if (env > block[s])
-					env += rlsSpeed * (0.f - env);
-				block[s] = env;
+					env += rlsSpeed * (block[s] - env);
+				block[s] = env * gain;
 			}
 			storeOutValue(block, numSamples);
 		}
@@ -311,6 +319,12 @@ namespace modSys2 {
 					block[s] += samples[ch][s];
 			for (auto s = 0; s < numSamples; ++s)
 				block[s] = std::abs(block[s] * chInv);
+		}
+
+		const float makeAutoGain(const float atkSpeed, const float rlsSpeed) {
+			auto a = std::sqrt(atkSpeed);
+			auto r = std::sqrt(rlsSpeed);
+			return (a + r) / a;
 		}
 	};
 
@@ -356,6 +370,53 @@ namespace modSys2 {
 		const Parameter& rateParameter;
 		const juce::NormalisableRange<float> freeRange;
 		float fsInv, phase;
+	};
+
+	struct RandModulator :
+		public Modulator
+	{
+		RandModulator(const juce::String& mID, const Parameter& syncParam, const Parameter& rateParam,
+			const Parameter& depthParam, const Parameter& smoothParam, const Parameter& biasParam) :
+			Modulator(mID),
+			rateParameter(rateParam),
+			depthParameter(depthParam),
+			smoothParameter(smoothParam),
+			biasParameter(biasParam),
+			fsInv(0.f), randValue(0.f),
+			rateIdx(0)
+		{}
+		void setSampleRate(double sampleRate) override {
+			if (Fs != sampleRate) {
+				Modulator::setSampleRate(sampleRate);
+				fsInv = 1.f / Fs;
+			}
+		}
+		void processBlock(const juce::AudioBuffer<float>& audioBuffer, Block& block) override {
+			const auto numSamples = audioBuffer.getNumSamples();
+			const auto lastSample = numSamples - 1;
+
+			const auto rateInMs = rateParameter[lastSample];
+			const auto rateLength = msInSamples(rateInMs, Fs);
+			for (auto s = 0; s < numSamples; ++s) {
+				++rateIdx;
+				if (rateIdx >= rateLength) {
+					rateIdx = 0;
+					const auto sign = rand.nextFloat() < .5f ? -1.f : 1.f;
+					randValue = sign * rand.nextFloat() * depthParameter[s];
+				}
+				block[s] = randValue;
+			}
+
+			storeOutValue(block, numSamples);
+		}
+	protected:
+		const Parameter& rateParameter;
+		const Parameter& depthParameter;
+		const Parameter& smoothParameter;
+		const Parameter& biasParameter;
+		juce::Random rand;
+		float fsInv, randValue;
+		int rateIdx;
 	};
 
 	/*
@@ -413,6 +474,10 @@ namespace modSys2 {
 			block.setBlockSize(b);
 			for (auto& p : parameters)
 				p.get()->setBlockSize(b);
+		}
+		void setSmoothingLengthInSamples(const juce::Identifier& pID, float length) {
+			auto p = getParameter(pID);
+			p->get()->setSmoothingLengthInSamples(length);
 		}
 		// SERIALIZE
 		void setState(juce::AudioProcessorValueTreeState& apvts) {
@@ -525,7 +590,13 @@ namespace modSys2 {
 	/*
 	* to do:
 	* envelopeFollowerModulator
+	*	if atk or rls cur smoothing: sample-based param-update	
+	* 
 	*	implement phase modulator
 	*		how to handle dynamic param ranges
+	* 
+	* RandModulator
+	*	continue implementing what's there
+	*	solution to missing width param
 	*/
 }

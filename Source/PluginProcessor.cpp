@@ -35,6 +35,13 @@ ModularTestAudioProcessor::ModularTestAudioProcessor()
         juce::NormalisableRange<float>(.1f, 20.f),
         0
     );
+
+    m->setSmoothingLengthInSamples(param::getID(param::ID::PhaseSync), 0); // example for snappy param
+    m->setSmoothingLengthInSamples(param::getID(param::ID::ModulesMix), 11025); // example for quick param
+    m->setSmoothingLengthInSamples(param::getID(param::ID::Depth), 44100); // example for slow param
+
+    m->setSmoothingLengthInSamples(param::getID(param::ID::EnvFolAtk), 5512.5f);
+    m->setSmoothingLengthInSamples(param::getID(param::ID::EnvFolRls), 5512.5f);
 }
 
 ModularTestAudioProcessor::~ModularTestAudioProcessor()

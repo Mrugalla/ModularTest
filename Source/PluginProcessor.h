@@ -81,8 +81,8 @@ namespace param {
 		parameters.push_back(createParameter(ID::Depth, 1.f));
 		parameters.push_back(createParameter(ID::ModulesMix, 0.5f));
 
-		parameters.push_back(createParameter(ID::EnvFolAtk, 1.f, juce::NormalisableRange<float>(20.f, 1000.f), getMsStr()));
-		parameters.push_back(createParameter(ID::EnvFolRls, 0.5f, juce::NormalisableRange<float>(20.f, 1000.f), getMsStr()));
+		parameters.push_back(createParameter(ID::EnvFolAtk, 1.f, juce::NormalisableRange<float>(6.f, 1000.f), getMsStr()));
+		parameters.push_back(createParameter(ID::EnvFolRls, 0.5f, juce::NormalisableRange<float>(6.f, 1000.f), getMsStr()));
 
 		auto rateStr = getRateStr(apvts,
 			juce::NormalisableRange<float>(.1f, 20.f, 0.f),
