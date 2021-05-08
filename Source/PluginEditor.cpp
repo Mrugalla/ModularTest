@@ -19,6 +19,7 @@ ModularTestAudioProcessorEditor::ModularTestAudioProcessorEditor(ModularTestAudi
 
     envFolAtkP(audioProcessor, param::getID(param::ID::EnvFolAtk), audioProcessor.getChannelCountOfBus(false, 0)),
     envFolRlsP(audioProcessor, param::getID(param::ID::EnvFolRls), audioProcessor.getChannelCountOfBus(false, 0)),
+    envFolWdthP(audioProcessor, param::getID(param::ID::EnvFolWdth), audioProcessor.getChannelCountOfBus(false, 0)),
     envFolDisplay(0, audioProcessor.getChannelCountOfBus(false, 0)),
 
     phaseSyncP(audioProcessor, param::getID(param::ID::PhaseSync), audioProcessor.getChannelCountOfBus(false, 0)),
@@ -47,7 +48,7 @@ ModularTestAudioProcessorEditor::ModularTestAudioProcessorEditor(ModularTestAudi
     addAndMakeVisible(depthP); addAndMakeVisible(modulesMixP);
 
     addAndMakeVisible(envFolAtkP); addAndMakeVisible(envFolRlsP);
-    addAndMakeVisible(envFolDisplay);
+    addAndMakeVisible(envFolWdthP); addAndMakeVisible(envFolDisplay);
 
     addAndMakeVisible(phaseSyncP); addAndMakeVisible(phaseRateP);
     addAndMakeVisible(phaseDisplay);
@@ -106,7 +107,7 @@ void ModularTestAudioProcessorEditor::resized() {
 
     const auto modulesX = x;
     const auto moduleHeight = height / 2.f;
-    auto moduleObjWidth = width / 2.f;
+    auto moduleObjWidth = width / 3.f;
     envFolDragger.setQBounds(maxQuadIn(juce::Rectangle<float>(x, y, moduleObjWidth, moduleHeight)).toNearestInt());
     x += moduleObjWidth;
     envFolDisplay.setBounds(maxQuadIn(juce::Rectangle<float>(x, y, moduleObjWidth, moduleHeight)).toNearestInt());
@@ -114,6 +115,8 @@ void ModularTestAudioProcessorEditor::resized() {
     envFolAtkP.setBounds(maxQuadIn(juce::Rectangle<float>(x, y, moduleObjWidth, moduleHeight)).toNearestInt());
     x += moduleObjWidth;
     envFolRlsP.setBounds(maxQuadIn(juce::Rectangle<float>(x, y, moduleObjWidth, moduleHeight)).toNearestInt());
+    x += moduleObjWidth;
+    envFolWdthP.setBounds(maxQuadIn(juce::Rectangle<float>(x, y, moduleObjWidth, moduleHeight)).toNearestInt());
     
     x = modulesX;
     y += moduleHeight;
@@ -139,7 +142,8 @@ void ModularTestAudioProcessorEditor::timerCallback() {
     macro2Dragger.timerCallback(matrix); macro3Dragger.timerCallback(matrix);
 
     envFolAtkP.timerCallback(matrix); envFolRlsP.timerCallback(matrix);
-    envFolDisplay.timerCallback(matrix); envFolDragger.timerCallback(matrix);
+    envFolWdthP.timerCallback(matrix); envFolDisplay.timerCallback(matrix);
+    envFolDragger.timerCallback(matrix);
 
     phaseSyncP.timerCallback(matrix); phaseRateP.timerCallback(matrix);
     phaseDisplay.timerCallback(matrix); phaseDragger.timerCallback(matrix);

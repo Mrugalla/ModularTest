@@ -3,7 +3,7 @@
 #include <JuceHeader.h>
 
 namespace param {
-	enum class ID { Macro0, Macro1, Macro2, Macro3, Depth, ModulesMix, EnvFolAtk, EnvFolRls, PhaseSync, PhaseRate };
+	enum class ID { Macro0, Macro1, Macro2, Macro3, Depth, ModulesMix, EnvFolAtk, EnvFolRls, EnvFolWdth, PhaseSync, PhaseRate };
 
 	static juce::String getName(ID i) {
 		switch (i) {
@@ -15,6 +15,7 @@ namespace param {
 		case ID::ModulesMix: return "ModulesMix";
 		case ID::EnvFolAtk: return "EnvFolAtk";
 		case ID::EnvFolRls: return "EnvFolRls";
+		case ID::EnvFolWdth: return "EnvFolWdth";
 		case ID::PhaseSync: return "PhaseSync";
 		case ID::PhaseRate: return "PhaseRate";
 		default: return "";
@@ -83,6 +84,7 @@ namespace param {
 
 		parameters.push_back(createParameter(ID::EnvFolAtk, 1.f, juce::NormalisableRange<float>(6.f, 1000.f), getMsStr()));
 		parameters.push_back(createParameter(ID::EnvFolRls, 0.5f, juce::NormalisableRange<float>(6.f, 1000.f), getMsStr()));
+		parameters.push_back(createParameter(ID::EnvFolWdth, 1.f));
 
 		auto rateStr = getRateStr(apvts,
 			juce::NormalisableRange<float>(.1f, 20.f, 0.f),

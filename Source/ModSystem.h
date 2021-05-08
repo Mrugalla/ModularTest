@@ -304,13 +304,13 @@ namespace modSys2 {
 	struct EnvelopeFollowerModulator :
 		public Modulator
 	{
-		EnvelopeFollowerModulator(const juce::String& mID, const Parameter& atkParam, const Parameter& rlsParam) :
+		EnvelopeFollowerModulator(const juce::String& mID, const Parameter& atkParam, const Parameter& rlsParam, const Parameter& widthParam) :
 			Modulator(mID),
 			attackParameter(atkParam),
 			releaseParameter(rlsParam),
+			widthParameter(widthParam),
 			env()
-		{
-		}
+		{}
 		// SET
 		void setNumChannels(const int ch) {
 			Modulator::setNumChannels(ch);
@@ -336,13 +336,21 @@ namespace modSys2 {
 						env[ch] += rlsSpeed * (block(ch, s) - env[ch]);
 					block(ch, s) = env[ch] * gain;
 				}
-				const auto lastSampleValue = block(ch, lastSample);
+			}
+			auto lastSampleValue = block(0, lastSample);
+			storeOutValue(lastSampleValue, 0);
+			const auto width = widthParameter(0, lastSample);
+			for (auto ch = 1; ch < audioBuffer.getNumChannels(); ++ch) {
+				for (auto s = 0; s < numSamples; ++s)
+					block(ch, s) = block(0, s) + width * (block(ch, s) - block(0, s));
+				lastSampleValue = block(ch, lastSample);
 				storeOutValue(lastSampleValue, ch);
 			}
 		}
 	protected:
 		const Parameter& attackParameter;
 		const Parameter& releaseParameter;
+		const Parameter& widthParameter;
 		std::vector<float> env;
 	private:
 		inline void getSamples(const juce::AudioBuffer<float>& audioBuffer, Block& block) {
@@ -579,11 +587,12 @@ namespace modSys2 {
 			const auto p = getParameter(pID)->get();
 			modulators.push_back(std::make_shared<MacroModulator>(*p));
 		}
-		void addEnvelopeFollowerModulator(const juce::Identifier& atkPID, const juce::Identifier& rlsPID, int idx) {
+		void addEnvelopeFollowerModulator(const juce::Identifier& atkPID, const juce::Identifier& rlsPID, const juce::Identifier& wdthPID, int idx) {
 			const auto atkP = getParameter(atkPID)->get();
 			const auto rlsP = getParameter(rlsPID)->get();
+			const auto wdthP = getParameter(wdthPID)->get();
 			const juce::String idString("EnvFol" + idx);
-			modulators.push_back(std::make_shared<EnvelopeFollowerModulator>(idString, *atkP, *rlsP));
+			modulators.push_back(std::make_shared<EnvelopeFollowerModulator>(idString, *atkP, *rlsP, *wdthP));
 		}
 		void addPhaseModulator(const juce::Identifier& syncPID, const juce::Identifier& ratePID, const juce::NormalisableRange<float> freeRange, int idx) {
 			const auto syncP = getParameter(syncPID)->get();
@@ -645,7 +654,7 @@ namespace modSys2 {
 	*	if atk or rls cur smoothing: sample-based param-update	
 	* 
 	* phase modulator
-	*	how to handle dynamic param ranges
+	*	how to handle dynamic param ranges (wtf did i mean with this)
 	* 
 	* RandModulator
 	*	continue implementing what's there

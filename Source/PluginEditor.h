@@ -25,7 +25,7 @@ protected:
     juce::Label globalsLabel;
     modSys2Editor::ParameterExample depthP, modulesMixP;
 
-    modSys2Editor::ParameterExample envFolAtkP, envFolRlsP;
+    modSys2Editor::ParameterExample envFolAtkP, envFolRlsP, envFolWdthP;
     modSys2Editor::EnvelopeFollowerDisplay envFolDisplay;
 
     modSys2Editor::ParameterExample phaseSyncP, phaseRateP;

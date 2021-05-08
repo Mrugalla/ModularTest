@@ -25,6 +25,7 @@ ModularTestAudioProcessor::ModularTestAudioProcessor()
     m->addEnvelopeFollowerModulator(
         param::getID(param::ID::EnvFolAtk),
         param::getID(param::ID::EnvFolRls),
+        param::getID(param::ID::EnvFolWdth),
         0
     );
     m->addPhaseModulator(
@@ -113,6 +114,7 @@ void ModularTestAudioProcessor::prepareToPlay (double sampleRate, int samplesPer
     m->setSmoothingLengthInSamples(param::getID(param::ID::Depth), sec); // example for slow param
     m->setSmoothingLengthInSamples(param::getID(param::ID::EnvFolAtk), sec / 64);
     m->setSmoothingLengthInSamples(param::getID(param::ID::EnvFolRls), sec / 64);
+    m->setSmoothingLengthInSamples(param::getID(param::ID::EnvFolWdth), sec / 64);
 }
 
 void ModularTestAudioProcessor::releaseResources()
