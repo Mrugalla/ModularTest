@@ -17,7 +17,6 @@ ModularTestAudioProcessor::ModularTestAudioProcessor()
 #endif
 {
     auto m = matrix2.load();
-    //releasePool.startTimer(10000);
     m->addMacroModulator(param::getID(param::ID::Macro0));
     m->addMacroModulator(param::getID(param::ID::Macro1));
     m->addMacroModulator(param::getID(param::ID::Macro2));
@@ -28,20 +27,12 @@ ModularTestAudioProcessor::ModularTestAudioProcessor()
         param::getID(param::ID::EnvFolRls),
         0
     );
-
     m->addPhaseModulator(
         param::getID(param::ID::PhaseSync),
         param::getID(param::ID::PhaseRate),
         juce::NormalisableRange<float>(.1f, 20.f),
         0
     );
-
-    m->setSmoothingLengthInSamples(param::getID(param::ID::PhaseSync), 0); // example for snappy param
-    m->setSmoothingLengthInSamples(param::getID(param::ID::ModulesMix), 11025); // example for quick param
-    m->setSmoothingLengthInSamples(param::getID(param::ID::Depth), 44100); // example for slow param
-
-    m->setSmoothingLengthInSamples(param::getID(param::ID::EnvFolAtk), 5512.5f);
-    m->setSmoothingLengthInSamples(param::getID(param::ID::EnvFolRls), 5512.5f);
 }
 
 ModularTestAudioProcessor::~ModularTestAudioProcessor()
@@ -112,8 +103,16 @@ void ModularTestAudioProcessor::changeProgramName (int index, const juce::String
 
 void ModularTestAudioProcessor::prepareToPlay (double sampleRate, int samplesPerBlock) {
     auto m = matrix2.load();
+    m->setNumChannels(getChannelCountOfBus(false, 0));
     m->setSampleRate(sampleRate);
     m->setBlockSize(samplesPerBlock);
+
+    auto sec = (int)sampleRate;
+    m->setSmoothingLengthInSamples(param::getID(param::ID::PhaseSync), 0); // example for snappy param
+    m->setSmoothingLengthInSamples(param::getID(param::ID::ModulesMix), sec / 8); // example for quick param
+    m->setSmoothingLengthInSamples(param::getID(param::ID::Depth), sec); // example for slow param
+    m->setSmoothingLengthInSamples(param::getID(param::ID::EnvFolAtk), sec / 64);
+    m->setSmoothingLengthInSamples(param::getID(param::ID::EnvFolRls), sec / 64);
 }
 
 void ModularTestAudioProcessor::releaseResources()

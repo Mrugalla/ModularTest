@@ -26,18 +26,23 @@ namespace modSys2 {
 	* base class for everything that has a block
 	*/
 	struct Block {
-		void setBlockSize(const int b) { block.resize(b, 0); }
-		const float operator[](int i) const { return block[i]; }
-		float& operator[](int i) { return block[i]; }
-		void limit(const int numSamples) {
-			for (auto s = 0; s < numSamples; ++s)
-				if (block[s] < 0.f) block[s] = 0.f;
-				else if (block[s] > 1.f) block[s] = 1.f;
+		void setNumChannels(const int ch) { block.resize(ch); }
+		void setBlockSize(const int b) {
+			for(auto& ch: block)
+				ch.resize(b, 0);
 		}
-		float* data() { return block.data(); }
-		const float* data() const { return block.data(); }
+		const float operator()(const int ch, const int s) const { return block[ch][s]; }
+		float& operator()(const int ch, const int s) { return block[ch][s]; }
+		void limit(const int numSamples) {
+			for(auto& ch: block)
+				for (auto s = 0; s < numSamples; ++s)
+					if (ch[s] < 0.f) ch[s] = 0.f;
+					else if (ch[s] > 1.f) ch[s] = 1.f;
+		}
+		float* data(const int ch) { return block[ch].data(); }
+		const float* data(const int ch) const { return block[ch].data(); }
 	protected:
-		std::vector<float> block;
+		std::vector<std::vector<float>> block;
 	};
 
 	/*
@@ -46,10 +51,10 @@ namespace modSys2 {
 	struct Lowpass {
 		Lowpass() : e(0.f), cutoff(1.f) {}
 		void setCutoff(float x) { cutoff = x; }
-		void processBlock(Block& block, const float target, const int numSamples) {
+		void processBlock(Block& block, const float target, const int numSamples, const int ch) {
 			for (auto s = 0; s < numSamples; ++s) {
 				e += cutoff * (target - e);
-				block[s] = e;
+				block(ch, s) = e;
 			}
 		}
 	private:
@@ -68,15 +73,15 @@ namespace modSys2 {
 			isWorking(false)
 		{}
 		void setLength(const float samples) { length = samples; }
-		void processBlock(Block& block, const float dest, const int numSamples) {
+		void processBlock(Block& block, const float dest, const int numSamples, const int ch) {
 			if (!isWorking) {
 				if (env == dest)
-					return bypass(block, dest, numSamples);
+					return bypass(block, dest, numSamples, ch);
 				setNewDestination(dest);
 			}
 			else if (length == 0)
-				return bypass(block, dest, numSamples);
-			processWork(block, dest, numSamples);
+				return bypass(block, dest, numSamples, ch);
+			processWork(block, dest, numSamples, ch);
 		}
 	protected:
 		float env, startValue, endValue, rangeValue, idx, length;
@@ -89,26 +94,26 @@ namespace modSys2 {
 			idx = 0.f;
 			isWorking = true;
 		}
-		void processWork(Block& block, const float dest, const int numSamples) {
+		void processWork(Block& block, const float dest, const int numSamples, const int ch) {
 			for (auto s = 0; s < numSamples; ++s) {
 				if (idx >= length) {
 					if (dest != endValue)
 						setNewDestination(dest);
 					else {
 						for (auto s1 = s; s1 < numSamples; ++s1)
-							block[s1] = endValue;
+							block(ch, s1) = endValue;
 						isWorking = false;
 						return;
 					}
 				}
 				const auto curve = .5f - std::cos(idx * pi / length) * .5f;
-				block[s] = env = startValue + curve * rangeValue;
+				block(ch, s) = env = startValue + curve * rangeValue;
 				++idx;
 			}
 		}
-		void bypass(Block& block, const float dest, const int numSamples) {
+		void bypass(Block& block, const float dest, const int numSamples, const int ch) {
 			for (auto s = 0; s < numSamples; ++s)
-				block[s] = dest;
+				block(ch, s) = dest;
 		}
 	};
 
@@ -122,35 +127,51 @@ namespace modSys2 {
 			Identifiable(pID),
 			parameter(apvts.getRawParameterValue(pID)),
 			rap(*apvts.getParameter(pID)),
-			sumValue(0),
+			sumValue(),
 			block(),
 			smoothing(),
 			Fs(1.f)
 		{}
 		// SET
+		void setNumChannels(const int ch) {
+			block.setNumChannels(ch);
+			if (sumValue.size() == ch) return;
+			sumValue.clear();
+			for(auto c = 0; c < ch; ++c)
+				sumValue.push_back(std::make_shared<std::atomic<float>>(0.f));
+		}
 		void setSampleRate(double sampleRate) { Fs = static_cast<float>(sampleRate); }
 		void setBlockSize(const int b) { block.setBlockSize(b); }
-		void setSmoothingLengthInSamples(const float length) { smoothing.setLength(length); }
+		void setSmoothingLengthInSamples(const float length) {
+			smoothing.setLength(length);
+		}
 		// PROCESS
 		void processBlock(const int numSamples) {
+			const int numChannels = sumValue.size();
 			const auto nextValue = rap.convertTo0to1(parameter->load());
-			smoothing.processBlock(block, nextValue, numSamples);
+			smoothing.processBlock(block, nextValue, numSamples, 0);
+			for (auto ch = 1; ch < numChannels; ++ch)
+				for (auto s = 0; s < numSamples; ++s)
+					block(ch, s) = block(0, s);
 		}
-		void storeSumValue(const int numSamples) { sumValue.store(block[numSamples - 1]); }
-		float& operator[](const float i) { return block[i]; }
+		void storeSumValue(const int numChannels, const int lastSample) {
+			for(auto ch = 0; ch < numChannels; ++ch)
+				sumValue[ch]->store(block(ch, lastSample));
+		}
+		float& operator()(const int ch, const int s) { return block(ch, s); }
 		void limit(const int numSamples) { block.limit(numSamples); }
 		// GET NORMAL
-		float getSumValue() const { return sumValue.load(); }
+		float getSumValue(const int ch) const { return sumValue[ch]->load(); }
 		bool operator==(const Parameter& other) { return id == other.id; }
-		const float& operator[](const float i) const { return block[i]; }
-		float* data() { return block.data(); }
-		const float* data() const { return block.data(); }
+		const float& operator()(const int ch, const int s) const { return block(ch, s); }
+		float* data(const int ch) { return block.data(ch); }
+		const float* data(const int ch) const { return block.data(ch); }
 		// GET CONVERTED
-		float denormalized(const int s) const { return rap.convertFrom0to1(block[s]); }
+		float denormalized(const int ch, const int s) const { return rap.convertFrom0to1(block(ch, s)); }
 	protected:
 		std::atomic<float>* parameter;
 		const juce::RangedAudioParameter& rap;
-		std::atomic<float> sumValue;
+		std::vector<std::shared_ptr<std::atomic<float>>> sumValue;
 		Block block;
 		Smoothing2 smoothing;
 		float Fs;
@@ -167,10 +188,11 @@ namespace modSys2 {
 			parameter(p),
 			attenuvertor(defaultAtten)
 		{}
-		void processBlock(const Block& block, const int numSamples) {
+		void processBlock(const Block& block, const int numChannels, const int numSamples) {
 			const auto g = attenuvertor.load();
-			for (auto s = 0; s < numSamples; ++s)
-				parameter[s] += block[s] * g;
+			for(auto ch = 0; ch < numChannels; ++ch)
+				for (auto s = 0; s < numSamples; ++s)
+					parameter(ch, s) += block(ch, s) * g;
 		}
 		void setValue(float value) { attenuvertor.store(value); }
 		float getValue() const { return attenuvertor.load(); }
@@ -187,15 +209,21 @@ namespace modSys2 {
 	{
 		Modulator(const juce::Identifier& mID) :
 			Identifiable(mID),
-			outValue(0.f),
+			outValue(),
 			destinations()
 		{}
 		Modulator(const juce::String& mID) :
 			Identifiable(mID),
-			outValue(0.f),
+			outValue(),
 			destinations()
 		{}
 		// SET
+		virtual void setNumChannels(const int ch) {
+			if (outValue.size() == ch) return;
+			outValue.clear();
+			for(auto c = 0; c < ch; ++c)
+				outValue.push_back(std::make_shared<std::atomic<float>>(0.f));
+		}
 		virtual void setSampleRate(double sampleRate) { Fs = static_cast<float>(sampleRate); }
 		void addDestination(Parameter& p, float atten = 1.f) {
 			if (hasDestination(p.id)) return;
@@ -219,11 +247,13 @@ namespace modSys2 {
 			return d->get()->setValue(value);
 		}
 		virtual void processBlock(const juce::AudioBuffer<float>& audioBuffer, Block& block) = 0;
-		void processDestinations(Block& block, const int numSamples) {
+		void processDestinations(Block& block, const int numChannels, const int numSamples) {
 			for (auto& destination : destinations)
-				destination.get()->processBlock(block, numSamples);
+				destination.get()->processBlock(block, numChannels, numSamples);
 		}
-		void storeOutValue(const Block& block, const int numSamples){ outValue.store(block[numSamples - 1]); }
+		void storeOutValue(const float lastSampleValue, const int ch) {
+			outValue[ch]->store(lastSampleValue);
+		}
 		// GET
 		bool hasDestination(const juce::Identifier& pID) const {
 			const auto d = getDestination(pID);
@@ -242,10 +272,10 @@ namespace modSys2 {
 			return d->get()->getValue();
 		}
 		const std::vector<std::shared_ptr<Destination>>& getDestinations() const { return destinations; }
-		float getOutValue() const { return outValue.load(); }
+		float getOutValue(const int ch) const { return outValue[ch]->load(); }
 	protected:
 		std::vector<std::shared_ptr<Destination>> destinations;
-		std::atomic<float> outValue;
+		std::vector<std::shared_ptr<std::atomic<float>>> outValue;
 		float Fs;
 	};
 
@@ -260,9 +290,9 @@ namespace modSys2 {
 			parameter(param)
 		{}
 		void processBlock(const juce::AudioBuffer<float>& audioBuffer, Block& block) override {
-			const auto numSamples = audioBuffer.getNumSamples();
-			for (auto s = 0; s < numSamples; ++s)
-				block[s] = parameter[s];
+			for(auto ch = 0; ch < audioBuffer.getNumChannels(); ++ch)
+				for (auto s = 0; s < audioBuffer.getNumSamples(); ++s)
+					block(ch, s) = parameter(ch, s);
 		}
 	protected:
 		const Parameter& parameter;
@@ -278,53 +308,55 @@ namespace modSys2 {
 			Modulator(mID),
 			attackParameter(atkParam),
 			releaseParameter(rlsParam),
-			env(0.f)
+			env()
 		{
+		}
+		// SET
+		void setNumChannels(const int ch) {
+			Modulator::setNumChannels(ch);
+			env.resize(ch, 0.f);
 		}
 		// PROCESS
 		void processBlock(const juce::AudioBuffer<float>& audioBuffer, Block& block) override {
 			const auto numSamples = audioBuffer.getNumSamples();
 			const auto lastSample = numSamples - 1;
 			getSamples(audioBuffer, block);
-			const auto atkInMs = attackParameter.denormalized(lastSample);
-			const auto rlsInMs = releaseParameter.denormalized(lastSample);
-			const auto atkInSamples = msInSamples(atkInMs, Fs);
-			const auto rlsInSamples = msInSamples(rlsInMs, Fs);
-			const auto atkSpeed = 1.f / atkInSamples;
-			const auto rlsSpeed = 1.f / rlsInSamples;
-			const auto gain = makeAutoGain(atkSpeed, rlsSpeed);
-			for (auto s = 0; s < numSamples; ++s) {
-				if (env < block[s])
-					env += atkSpeed * (block[s] - env);
-				else if (env > block[s])
-					env += rlsSpeed * (block[s] - env);
-				block[s] = env * gain;
+			for (auto ch = 0; ch < audioBuffer.getNumChannels(); ++ch) {
+				const auto atkInMs = attackParameter.denormalized(ch, lastSample);
+				const auto rlsInMs = releaseParameter.denormalized(ch, lastSample);
+				const auto atkInSamples = msInSamples(atkInMs, Fs);
+				const auto rlsInSamples = msInSamples(rlsInMs, Fs);
+				const auto atkSpeed = 1.f / atkInSamples;
+				const auto rlsSpeed = 1.f / rlsInSamples;
+				const auto gain = makeAutoGain(atkSpeed, rlsSpeed);
+				for (auto s = 0; s < numSamples; ++s) {
+					if (env[ch] < block(ch, s))
+						env[ch] += atkSpeed * (block(ch, s) - env[ch]);
+					else if (env[ch] > block(ch, s))
+						env[ch] += rlsSpeed * (block(ch, s) - env[ch]);
+					block(ch, s) = env[ch] * gain;
+				}
+				const auto lastSampleValue = block(ch, lastSample);
+				storeOutValue(lastSampleValue, ch);
 			}
-			storeOutValue(block, numSamples);
 		}
 	protected:
 		const Parameter& attackParameter;
 		const Parameter& releaseParameter;
-		float env;
+		std::vector<float> env;
 	private:
 		inline void getSamples(const juce::AudioBuffer<float>& audioBuffer, Block& block) {
-			const auto numSamples = audioBuffer.getNumSamples();
-			const auto numChannels = audioBuffer.getNumChannels();
 			const auto samples = audioBuffer.getArrayOfReadPointers();
-			const auto chInv = 1.f / audioBuffer.getNumChannels();
-			for (auto s = 0; s < numSamples; ++s)
-				block[s] = samples[0][s];
-			for (auto ch = 1; ch < numChannels; ++ch)
-				for (auto s = 0; s < numSamples; ++s)
-					block[s] += samples[ch][s];
-			for (auto s = 0; s < numSamples; ++s)
-				block[s] = std::abs(block[s] * chInv);
+			for (auto ch = 0; ch < audioBuffer.getNumChannels(); ++ch)
+				for (auto s = 0; s < audioBuffer.getNumSamples(); ++s)
+					block(ch, s) = std::abs(samples[ch][s]);
 		}
 
 		const float makeAutoGain(const float atkSpeed, const float rlsSpeed) {
-			auto a = std::sqrt(atkSpeed);
-			auto r = std::sqrt(rlsSpeed);
-			return (a + r) / a;
+			//auto a = std::sqrt(atkSpeed);
+			//auto r = std::sqrt(rlsSpeed);
+			//return (a + r) / a;
+			return 1.f + std::sqrt(rlsSpeed / atkSpeed);
 		}
 	};
 
@@ -342,6 +374,10 @@ namespace modSys2 {
 			fsInv(0.f), phase(0.f)
 		{}
 		// SET
+		void setNumChannels(const int ch) {
+			Modulator::setNumChannels(ch);
+			phase.resize(ch);
+		}
 		void setSampleRate(double sampleRate) override {
 			if (Fs != sampleRate) {
 				Modulator::setSampleRate(sampleRate);
@@ -350,28 +386,35 @@ namespace modSys2 {
 		}
 		// PROCESS
 		void processBlock(const juce::AudioBuffer<float>& audioBuffer, Block& block) override {
+			const auto numChannels = audioBuffer.getNumChannels();
 			const auto numSamples = audioBuffer.getNumSamples();
 			const auto lastSample = numSamples - 1;
 
-			const auto rate = syncParameter[0] < .5f ?
-				freeRange.convertFrom0to1(rateParameter[lastSample]) :
-				rateParameter[lastSample]; // put beat sync here
-			const auto inc = rate * fsInv;
-			for (auto s = 0; s < numSamples; ++s) {
-				phase += inc;
-				if (phase >= 1.f)
-					--phase;
-				block[s] = phase;
+			for (auto ch = 0; ch < numChannels; ++ch) {
+				const auto rate = syncParameter(ch, 0) < .5f ?
+					freeRange.convertFrom0to1(rateParameter(ch, lastSample)) :
+					rateParameter(ch, lastSample); // put beat sync here
+				const auto inc = rate * fsInv;
+				for (auto s = 0; s < numSamples; ++s) {
+					phase[ch] += inc;
+					if (phase[ch] >= 1.f)
+						--phase[ch];
+					block(ch, s) = phase[ch];
+				}
+				storeOutValue(block(ch, lastSample), ch);
 			}
-			storeOutValue(block, numSamples);
 		}
 	protected:
 		const Parameter& syncParameter;
 		const Parameter& rateParameter;
 		const juce::NormalisableRange<float> freeRange;
-		float fsInv, phase;
+		std::vector<float> phase;
+		float fsInv;
 	};
 
+	/*
+	* a random lfo modulator
+	*/
 	struct RandModulator :
 		public Modulator
 	{
@@ -395,19 +438,18 @@ namespace modSys2 {
 			const auto numSamples = audioBuffer.getNumSamples();
 			const auto lastSample = numSamples - 1;
 
-			const auto rateInMs = rateParameter[lastSample];
+			const auto rateInMs = rateParameter(0, lastSample);
 			const auto rateLength = msInSamples(rateInMs, Fs);
 			for (auto s = 0; s < numSamples; ++s) {
 				++rateIdx;
 				if (rateIdx >= rateLength) {
 					rateIdx = 0;
 					const auto sign = rand.nextFloat() < .5f ? -1.f : 1.f;
-					randValue = sign * rand.nextFloat() * depthParameter[s];
+					randValue = sign * rand.nextFloat() * depthParameter(0, s);
 				}
-				block[s] = randValue;
+				block(0, s) = randValue;
 			}
-
-			storeOutValue(block, numSamples);
+			storeOutValue(block(0, lastSample), 0);
 		}
 	protected:
 		const Parameter& rateParameter;
@@ -466,6 +508,13 @@ namespace modSys2 {
 			selectedModulator(other->selectedModulator)
 		{}
 		// SET
+		void setNumChannels(const int ch) {
+			block.setNumChannels(ch);
+			for (auto& p : parameters)
+				p->setNumChannels(ch);
+			for (auto& m : modulators)
+				m->setNumChannels(ch);
+		}
 		void setSampleRate(double sampleRate) {
 			for (auto& p : parameters) p.get()->setSampleRate(sampleRate);
 			for (auto& m : modulators) m.get()->setSampleRate(sampleRate);
@@ -530,16 +579,16 @@ namespace modSys2 {
 			const auto p = getParameter(pID)->get();
 			modulators.push_back(std::make_shared<MacroModulator>(*p));
 		}
-		void addEnvelopeFollowerModulator(const juce::Identifier& atkPID, const juce::Identifier& rlsPID, int envFolIdx) {
+		void addEnvelopeFollowerModulator(const juce::Identifier& atkPID, const juce::Identifier& rlsPID, int idx) {
 			const auto atkP = getParameter(atkPID)->get();
 			const auto rlsP = getParameter(rlsPID)->get();
-			const juce::String idString("EnvFol" + envFolIdx);
+			const juce::String idString("EnvFol" + idx);
 			modulators.push_back(std::make_shared<EnvelopeFollowerModulator>(idString, *atkP, *rlsP));
 		}
-		void addPhaseModulator(const juce::Identifier& syncPID, const juce::Identifier& ratePID, const juce::NormalisableRange<float> freeRange, int phaseIdx) {
+		void addPhaseModulator(const juce::Identifier& syncPID, const juce::Identifier& ratePID, const juce::NormalisableRange<float> freeRange, int idx) {
 			const auto syncP = getParameter(syncPID)->get();
 			const auto rateP = getParameter(ratePID)->get();
-			const juce::String idString("Phase" + phaseIdx);
+			const juce::String idString("Phase" + idx);
 			modulators.push_back(std::make_shared<PhaseModulator>(idString, *syncP, *rateP, freeRange));
 		}
 		// MODIFY / REPLACE
@@ -552,16 +601,18 @@ namespace modSys2 {
 		}
 		// PROCESS
 		void processBlock(const juce::AudioBuffer<float>& audioBuffer) {
+			const auto numChannels = audioBuffer.getNumChannels();
 			const auto numSamples = audioBuffer.getNumSamples();
 			for (auto& p : parameters) p.get()->processBlock(numSamples);
 			for (auto& m : modulators) {
 				m->processBlock(audioBuffer, block);
-				m->processDestinations(block, numSamples);
+				m->processDestinations(block, numChannels, numSamples);
 			}
+			const auto lastSample = numSamples - 1;
 			for (auto& parameter : parameters) {
 				auto p = parameter.get();
 				p->limit(numSamples);
-				p->storeSumValue(numSamples);
+				p->storeSumValue(numChannels, lastSample);
 			}
 		}
 		// GET
@@ -590,13 +641,13 @@ namespace modSys2 {
 	/*
 	* to do:
 	* envelopeFollowerModulator
+	*	add width param
 	*	if atk or rls cur smoothing: sample-based param-update	
 	* 
-	*	implement phase modulator
-	*		how to handle dynamic param ranges
+	* phase modulator
+	*	how to handle dynamic param ranges
 	* 
 	* RandModulator
 	*	continue implementing what's there
-	*	solution to missing width param
 	*/
 }

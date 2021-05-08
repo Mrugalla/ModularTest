@@ -7,23 +7,23 @@ ModularTestAudioProcessorEditor::ModularTestAudioProcessorEditor(ModularTestAudi
 
     macrosLabel("Macros", "Macros"),
 
-    macro0P(audioProcessor, param::getID(param::ID::Macro0), param::getID(param::ID::Macro0)),
-    macro1P(audioProcessor, param::getID(param::ID::Macro1), param::getID(param::ID::Macro1)),
-    macro2P(audioProcessor, param::getID(param::ID::Macro2), param::getID(param::ID::Macro2)),
-    macro3P(audioProcessor, param::getID(param::ID::Macro3), param::getID(param::ID::Macro3)),
+    macro0P(audioProcessor, param::getID(param::ID::Macro0), audioProcessor.getChannelCountOfBus(false, 0), param::getID(param::ID::Macro0)),
+    macro1P(audioProcessor, param::getID(param::ID::Macro1), audioProcessor.getChannelCountOfBus(false, 0), param::getID(param::ID::Macro1)),
+    macro2P(audioProcessor, param::getID(param::ID::Macro2), audioProcessor.getChannelCountOfBus(false, 0), param::getID(param::ID::Macro2)),
+    macro3P(audioProcessor, param::getID(param::ID::Macro3), audioProcessor.getChannelCountOfBus(false, 0), param::getID(param::ID::Macro3)),
 
     globalsLabel("Globals", "Globals"),
 
-    depthP(audioProcessor, param::getID(param::ID::Depth)),
-    modulesMixP(audioProcessor, param::getID(param::ID::ModulesMix)),
+    depthP(audioProcessor, param::getID(param::ID::Depth), audioProcessor.getChannelCountOfBus(false, 0)),
+    modulesMixP(audioProcessor, param::getID(param::ID::ModulesMix), audioProcessor.getChannelCountOfBus(false, 0)),
 
-    envFolAtkP(audioProcessor, param::getID(param::ID::EnvFolAtk)),
-    envFolRlsP(audioProcessor, param::getID(param::ID::EnvFolRls)),
-    envFolDisplay(0),
+    envFolAtkP(audioProcessor, param::getID(param::ID::EnvFolAtk), audioProcessor.getChannelCountOfBus(false, 0)),
+    envFolRlsP(audioProcessor, param::getID(param::ID::EnvFolRls), audioProcessor.getChannelCountOfBus(false, 0)),
+    envFolDisplay(0, audioProcessor.getChannelCountOfBus(false, 0)),
 
-    phaseSyncP(audioProcessor, param::getID(param::ID::PhaseSync)),
-    phaseRateP(audioProcessor, param::getID(param::ID::PhaseRate)),
-    phaseDisplay(0),
+    phaseSyncP(audioProcessor, param::getID(param::ID::PhaseSync), audioProcessor.getChannelCountOfBus(false, 0)),
+    phaseRateP(audioProcessor, param::getID(param::ID::PhaseRate), audioProcessor.getChannelCountOfBus(false, 0)),
+    phaseDisplay(0, audioProcessor.getChannelCountOfBus(false, 0)),
 
     modulesLabel("Modules", "Modules"),
 
