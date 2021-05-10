@@ -6,6 +6,24 @@
 namespace modSys2 {
 	static constexpr float pi = 3.14159265359f;
 	static float msInSamples(float ms, float Fs) { return ms * Fs * .001f; }
+	static juce::AudioPlayHead::CurrentPositionInfo getDefaultPlayHead() {
+		juce::AudioPlayHead::CurrentPositionInfo cpi;
+		cpi.bpm = 120;
+		cpi.editOriginTime = 0;
+		cpi.frameRate = juce::AudioPlayHead::FrameRateType::fps25;
+		cpi.isLooping = false;
+		cpi.isPlaying = true;
+		cpi.isRecording = false;
+		cpi.ppqLoopEnd = 1;
+		cpi.ppqLoopStart = 0;
+		cpi.ppqPosition = 420;
+		cpi.ppqPositionOfLastBarStart = 69;
+		cpi.timeInSamples = 0;
+		cpi.timeInSeconds = 0;
+		cpi.timeSigDenominator = 1;
+		cpi.timeSigNumerator = 1;
+		return cpi;
+	}
 
 	/*
 	* makes sure things can be identified
@@ -246,7 +264,7 @@ namespace modSys2 {
 			auto d = getDestination(pID);
 			return d->get()->setValue(value);
 		}
-		virtual void processBlock(const juce::AudioBuffer<float>& audioBuffer, Block& block) = 0;
+		virtual void processBlock(const juce::AudioBuffer<float>& audioBuffer, Block& block, juce::AudioPlayHead::CurrentPositionInfo& playHead) = 0;
 		void processDestinations(Block& block, const int numChannels, const int numSamples) {
 			for (auto& destination : destinations)
 				destination.get()->processBlock(block, numChannels, numSamples);
@@ -289,7 +307,7 @@ namespace modSys2 {
 			Modulator(param.id),
 			parameter(param)
 		{}
-		void processBlock(const juce::AudioBuffer<float>& audioBuffer, Block& block) override {
+		void processBlock(const juce::AudioBuffer<float>& audioBuffer, Block& block, juce::AudioPlayHead::CurrentPositionInfo&) override {
 			for(auto ch = 0; ch < audioBuffer.getNumChannels(); ++ch)
 				for (auto s = 0; s < audioBuffer.getNumSamples(); ++s)
 					block(ch, s) = parameter(ch, s);
@@ -317,7 +335,8 @@ namespace modSys2 {
 			env.resize(ch, 0.f);
 		}
 		// PROCESS
-		void processBlock(const juce::AudioBuffer<float>& audioBuffer, Block& block) override {
+		void processBlock(const juce::AudioBuffer<float>& audioBuffer, Block& block, juce::AudioPlayHead::CurrentPositionInfo&) override {
+			const int numChannels = audioBuffer.getNumChannels();
 			const auto numSamples = audioBuffer.getNumSamples();
 			const auto lastSample = numSamples - 1;
 			getSamples(audioBuffer, block);
@@ -337,15 +356,9 @@ namespace modSys2 {
 					block(ch, s) = env[ch] * gain;
 				}
 			}
-			auto lastSampleValue = block(0, lastSample);
-			storeOutValue(lastSampleValue, 0);
-			const auto width = widthParameter(0, lastSample);
-			for (auto ch = 1; ch < audioBuffer.getNumChannels(); ++ch) {
-				for (auto s = 0; s < numSamples; ++s)
-					block(ch, s) = block(0, s) + width * (block(ch, s) - block(0, s));
-				lastSampleValue = block(ch, lastSample);
-				storeOutValue(lastSampleValue, ch);
-			}
+			processWidth(block, numChannels, numSamples, lastSample);
+			for (auto ch = 1; ch < numChannels; ++ch)
+				storeOutValue(block(ch, lastSample), ch);
 		}
 	protected:
 		const Parameter& attackParameter;
@@ -360,25 +373,37 @@ namespace modSys2 {
 					block(ch, s) = std::abs(samples[ch][s]);
 		}
 
-		const float makeAutoGain(const float atkSpeed, const float rlsSpeed) {
+		float makeAutoGain(const float atkSpeed, const float rlsSpeed) {
 			//auto a = std::sqrt(atkSpeed);
 			//auto r = std::sqrt(rlsSpeed);
 			//return (a + r) / a;
 			return 1.f + std::sqrt(rlsSpeed / atkSpeed);
 		}
+
+		inline void processWidth(Block& block, const int numChannels, const int numSamples, const int lastSample) {
+			auto lastSampleValue = block(0, lastSample);
+			storeOutValue(lastSampleValue, 0);
+			const auto width = widthParameter(0, lastSample);
+			for (auto ch = 1; ch < numChannels; ++ch)
+				for (auto s = 0; s < numSamples; ++s)
+					block(ch, s) = block(0, s) + width * (block(ch, s) - block(0, s));
+		}
 	};
 
 	/*
-	* a phase modulator, not tested yet
+	* an lfo modulator
 	*/
-	struct PhaseModulator :
+	struct LFOModulator :
 		public Modulator
 	{
-		PhaseModulator(const juce::String& mID, const Parameter& syncParam, const Parameter& rateParam, const juce::NormalisableRange<float>& free) :
+		LFOModulator(const juce::String& mID, const Parameter& syncParam, const Parameter& rateParam, const Parameter& wdthParam, const param::MultiRange& ranges) :
 			Modulator(mID),
 			syncParameter(syncParam),
 			rateParameter(rateParam),
-			freeRange(free),
+			widthParameter(wdthParam),
+			multiRange(ranges),
+			freeID(multiRange.getID("free")),
+			syncID(multiRange.getID("sync")),
 			fsInv(0.f), phase(0.f)
 		{}
 		// SET
@@ -393,31 +418,75 @@ namespace modSys2 {
 			}
 		}
 		// PROCESS
-		void processBlock(const juce::AudioBuffer<float>& audioBuffer, Block& block) override {
+		void processBlock(const juce::AudioBuffer<float>& audioBuffer, Block& block, juce::AudioPlayHead::CurrentPositionInfo& playHead) override {
 			const auto numChannels = audioBuffer.getNumChannels();
 			const auto numSamples = audioBuffer.getNumSamples();
 			const auto lastSample = numSamples - 1;
 
 			for (auto ch = 0; ch < numChannels; ++ch) {
-				const auto rate = syncParameter(ch, 0) < .5f ?
-					freeRange.convertFrom0to1(rateParameter(ch, lastSample)) :
-					rateParameter(ch, lastSample); // put beat sync here
-				const auto inc = rate * fsInv;
-				for (auto s = 0; s < numSamples; ++s) {
-					phase[ch] += inc;
-					if (phase[ch] >= 1.f)
-						--phase[ch];
-					block(ch, s) = phase[ch];
+				const auto rateValue = rateParameter(ch, lastSample);
+				const bool isFree = syncParameter(ch, 0) < .5f;
+				if (isFree) {
+					const auto rate = multiRange(freeID).convertFrom0to1(rateValue);
+					const auto inc = rate * fsInv;
+					for (auto s = 0; s < numSamples; ++s) {
+						phase[ch] += inc;
+						if (phase[ch] >= 1.f)
+							--phase[ch];
+						block(ch, s) = phase[ch];
+					}
 				}
-				storeOutValue(block(ch, lastSample), ch);
+				else {
+					const auto bpm = static_cast<float>(playHead.bpm);
+					const auto bps = bpm / 60.f;
+					const auto quarterNoteLengthInSamples = Fs / bps;
+					const auto barLengthInSamples = quarterNoteLengthInSamples * 4.f;
+					const auto rate = multiRange(syncID).convertFrom0to1(rateValue);
+					const auto inc = 1.f / (barLengthInSamples * rate);
+					const auto ppq = static_cast<float>(playHead.ppqPosition) * .25f / rate;
+					const auto curPhase = (ppq - std::floor(ppq));
+					phase[ch] = curPhase;
+					for (auto s = 0; s < numSamples; ++s) {
+						block(ch, s) = phase[ch];
+						phase[ch] += inc;
+						if (phase[ch] >= 1.f)
+							--phase[ch];
+					}
+				}
 			}
+
+			processWidth(block, lastSample, numChannels, numSamples);
+			for (auto ch = 0; ch < numChannels; ++ch)
+				storeOutValue(block(ch, lastSample), ch);
 		}
 	protected:
 		const Parameter& syncParameter;
 		const Parameter& rateParameter;
-		const juce::NormalisableRange<float> freeRange;
+		const Parameter& widthParameter;
+		const param::MultiRange& multiRange;
+		const juce::Identifier& freeID, syncID;
 		std::vector<float> phase;
 		float fsInv;
+
+		inline void processWidth(Block& block, const int lastSample, const int numChannels, const int numSamples) {
+			const auto width = widthParameter.denormalized(0, lastSample) * .5f;
+			if(width > 0.f)
+				for (auto ch = 1; ch < numChannels; ++ch)
+					for (auto s = 0; s < numSamples; ++s) {
+						auto offsetSample = block(ch, s) + width;
+						if (offsetSample >= 1.f)
+							--offsetSample;
+						block(ch, s) = offsetSample;
+					}
+			else
+				for (auto ch = 1; ch < numChannels; ++ch)
+					for (auto s = 0; s < numSamples; ++s) {
+						auto offsetSample = block(ch, s) + width;
+						if (offsetSample < 0.f)
+							++offsetSample;
+						block(ch, s) = offsetSample;
+					}
+		}
 	};
 
 	/*
@@ -442,7 +511,7 @@ namespace modSys2 {
 				fsInv = 1.f / Fs;
 			}
 		}
-		void processBlock(const juce::AudioBuffer<float>& audioBuffer, Block& block) override {
+		void processBlock(const juce::AudioBuffer<float>& audioBuffer, Block& block, juce::AudioPlayHead::CurrentPositionInfo&) override {
 			const auto numSamples = audioBuffer.getNumSamples();
 			const auto lastSample = numSamples - 1;
 
@@ -495,6 +564,7 @@ namespace modSys2 {
 		Matrix(juce::AudioProcessorValueTreeState& apvts) :
 			parameters(),
 			modulators(),
+			curPosInfo(getDefaultPlayHead()),
 			block(),
 			selectedModulator()
 		{
@@ -512,6 +582,7 @@ namespace modSys2 {
 		Matrix(const Matrix* other) :
 			parameters(other->parameters),
 			modulators(other->modulators),
+			curPosInfo(getDefaultPlayHead()),
 			block(other->block),
 			selectedModulator(other->selectedModulator)
 		{}
@@ -594,11 +665,12 @@ namespace modSys2 {
 			const juce::String idString("EnvFol" + idx);
 			modulators.push_back(std::make_shared<EnvelopeFollowerModulator>(idString, *atkP, *rlsP, *wdthP));
 		}
-		void addPhaseModulator(const juce::Identifier& syncPID, const juce::Identifier& ratePID, const juce::NormalisableRange<float> freeRange, int idx) {
+		void addLFOModulator(const juce::Identifier& syncPID, const juce::Identifier& ratePID, const juce::Identifier& wdthPID, const param::MultiRange& ranges, int idx) {
 			const auto syncP = getParameter(syncPID)->get();
 			const auto rateP = getParameter(ratePID)->get();
+			const auto wdthP = getParameter(wdthPID)->get();
 			const juce::String idString("Phase" + idx);
-			modulators.push_back(std::make_shared<PhaseModulator>(idString, *syncP, *rateP, freeRange));
+			modulators.push_back(std::make_shared<LFOModulator>(idString, *syncP, *rateP, *wdthP, ranges));
 		}
 		// MODIFY / REPLACE
 		void selectModulator(const juce::Identifier& mID) { selectedModulator = getModulator(mID)->get()->id; }
@@ -609,12 +681,13 @@ namespace modSys2 {
 			getModulator(mID)->get()->removeDestination(*getParameter(pID)->get());
 		}
 		// PROCESS
-		void processBlock(const juce::AudioBuffer<float>& audioBuffer) {
+		void processBlock(const juce::AudioBuffer<float>& audioBuffer, juce::AudioPlayHead* playHead) {
 			const auto numChannels = audioBuffer.getNumChannels();
 			const auto numSamples = audioBuffer.getNumSamples();
+			if (playHead != nullptr) playHead->getCurrentPosition(curPosInfo);
 			for (auto& p : parameters) p.get()->processBlock(numSamples);
 			for (auto& m : modulators) {
-				m->processBlock(audioBuffer, block);
+				m->processBlock(audioBuffer, block, curPosInfo);
 				m->processDestinations(block, numChannels, numSamples);
 			}
 			const auto lastSample = numSamples - 1;
@@ -643,20 +716,25 @@ namespace modSys2 {
 	protected:
 		std::vector<std::shared_ptr<Parameter>> parameters;
 		std::vector<std::shared_ptr<Modulator>> modulators;
+		juce::AudioPlayHead::CurrentPositionInfo curPosInfo;
 		Block block;
 		juce::Identifier selectedModulator;
 	};
 
 	/*
 	* to do:
+	* temposync
+	*	bpm to beatlength etc
+	* 
 	* envelopeFollowerModulator
-	*	add width param
 	*	if atk or rls cur smoothing: sample-based param-update	
 	* 
-	* phase modulator
+	* lfoModulator
+	*	free/sync >> sync playhead
 	*	how to handle dynamic param ranges (wtf did i mean with this)
 	* 
-	* RandModulator
+	* randModulator
 	*	continue implementing what's there
+	*	or add stuff to lfoMod
 	*/
 }

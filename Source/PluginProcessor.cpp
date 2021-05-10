@@ -12,7 +12,8 @@ ModularTestAudioProcessor::ModularTestAudioProcessor()
                        .withOutput ("Output", juce::AudioChannelSet::stereo(), true)
                      #endif
                        ),
-    apvts(*this, nullptr, "Params", param::createParameters(apvts)),
+    lfoFreeSyncRanges(),
+    apvts(*this, nullptr, "Params", param::createParameters(apvts, lfoFreeSyncRanges)),
     matrix2(std::make_shared<modSys2::Matrix>(apvts))
 #endif
 {
@@ -28,10 +29,11 @@ ModularTestAudioProcessor::ModularTestAudioProcessor()
         param::getID(param::ID::EnvFolWdth),
         0
     );
-    m->addPhaseModulator(
-        param::getID(param::ID::PhaseSync),
-        param::getID(param::ID::PhaseRate),
-        juce::NormalisableRange<float>(.1f, 20.f),
+    m->addLFOModulator(
+        param::getID(param::ID::LFOSync),
+        param::getID(param::ID::LFORate),
+        param::getID(param::ID::LFOWdth),
+        lfoFreeSyncRanges,
         0
     );
 }
@@ -109,7 +111,7 @@ void ModularTestAudioProcessor::prepareToPlay (double sampleRate, int samplesPer
     m->setBlockSize(samplesPerBlock);
 
     auto sec = (int)sampleRate;
-    m->setSmoothingLengthInSamples(param::getID(param::ID::PhaseSync), 0); // example for snappy param
+    m->setSmoothingLengthInSamples(param::getID(param::ID::LFOSync), 0); // example for snappy param
     m->setSmoothingLengthInSamples(param::getID(param::ID::ModulesMix), sec / 8); // example for quick param
     m->setSmoothingLengthInSamples(param::getID(param::ID::Depth), sec); // example for slow param
     m->setSmoothingLengthInSamples(param::getID(param::ID::EnvFolAtk), sec / 64);
@@ -158,7 +160,7 @@ void ModularTestAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, 
         buffer.clear (i, 0, buffer.getNumSamples());
 
     auto newMatrix = matrix2.load();
-    newMatrix->processBlock(buffer);
+    newMatrix->processBlock(buffer, getPlayHead());
 }
 
 bool ModularTestAudioProcessor::hasEditor() const { return true; }

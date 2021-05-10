@@ -336,11 +336,11 @@ namespace modSys2Editor {
 	/*
 	* 
 	*/
-	struct PhaseDisplay :
+	struct LFODisplay :
 		public juce::Component,
 		public modSys2::Identifiable
 	{
-		PhaseDisplay(const int phaseID, const int numChannels) :
+		LFODisplay(const int phaseID, const int numChannels) :
 			juce::Component(),
 			modSys2::Identifiable(juce::String("Phase" + phaseID)),
 			img(juce::Image::RGB, 1, 1, true),
@@ -366,7 +366,7 @@ namespace modSys2Editor {
 			juce::Graphics g0{ img };
 			const auto width = static_cast<float>(getWidth());
 			const auto height = static_cast<float>(getHeight());
-			g0.fillAll(juce::Colour(0x11000000));
+			g0.fillAll(juce::Colour(0x77000000));
 			g0.setColour(juce::Colours::rebeccapurple);
 			g0.drawRect(getLocalBounds());
 			for (auto ch = 0; ch < curValue.size(); ++ch) {
@@ -378,6 +378,6 @@ namespace modSys2Editor {
 
 			g.drawImageAt(img, 0, 0, false);
 		}
-		JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(PhaseDisplay)
+		JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(LFODisplay)
 	};
 }

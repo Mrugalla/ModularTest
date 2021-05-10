@@ -28,14 +28,14 @@ protected:
     modSys2Editor::ParameterExample envFolAtkP, envFolRlsP, envFolWdthP;
     modSys2Editor::EnvelopeFollowerDisplay envFolDisplay;
 
-    modSys2Editor::ParameterExample phaseSyncP, phaseRateP;
-    modSys2Editor::PhaseDisplay phaseDisplay;
+    modSys2Editor::ParameterExample lfoSyncP, lfoRateP, lfoWdthP;
+    modSys2Editor::LFODisplay lfoDisplay;
 
     juce::Label modulesLabel;
 
     modSys2Editor::ModulatorDragger macro0Dragger, macro1Dragger, macro2Dragger, macro3Dragger;
     modSys2Editor::ModulatorDragger envFolDragger;
-    modSys2Editor::ModulatorDragger phaseDragger;
+    modSys2Editor::ModulatorDragger lfoDragger;
 
     void paint(juce::Graphics&) override;
     void resized() override;
