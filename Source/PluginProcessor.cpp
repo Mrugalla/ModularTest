@@ -1,5 +1,6 @@
 #include "PluginProcessor.h"
 #include "PluginEditor.h"
+#include <functional>
 #define ResetAPVTS false
 
 ModularTestAudioProcessor::ModularTestAudioProcessor()
@@ -29,13 +30,24 @@ ModularTestAudioProcessor::ModularTestAudioProcessor()
         param::getID(param::ID::EnvFolWdth),
         0
     );
-    m->addLFOModulator(
+    auto lfoMod = m->addLFOModulator(
         param::getID(param::ID::LFOSync),
         param::getID(param::ID::LFORate),
         param::getID(param::ID::LFOWdth),
+        param::getID(param::ID::LFOWaveTable),
         lfoFreeSyncRanges,
         0
     );
+
+    std::vector<Anything> waveTableInfo;
+    waveTableInfo.push_back(Anything::make<int>(512)); // tableSize
+    const auto tableSaw = [](float x) { return x; };
+    const auto tableSine = [t = modSys2::tau](float x) { return .5f * std::sin(x * t) + .5f; };
+    const auto tableSquare = [](float x) { return x < .5f ? 0.f : 1.f; };
+    waveTableInfo.push_back(Anything::make<std::function<float(float)>>(tableSaw));
+    waveTableInfo.push_back(Anything::make<std::function<float(float)>>(tableSine));
+    waveTableInfo.push_back(Anything::make<std::function<float(float)>>(tableSquare));
+    lfoMod->addStuff("wavetables", waveTableInfo);
 }
 
 ModularTestAudioProcessor::~ModularTestAudioProcessor()
@@ -106,12 +118,11 @@ void ModularTestAudioProcessor::changeProgramName (int index, const juce::String
 
 void ModularTestAudioProcessor::prepareToPlay (double sampleRate, int samplesPerBlock) {
     auto m = matrix2.load();
-    m->setNumChannels(getChannelCountOfBus(false, 0));
-    m->setSampleRate(sampleRate);
-    m->setBlockSize(samplesPerBlock);
+    m->prepareToPlay(getChannelCountOfBus(false, 0), samplesPerBlock, sampleRate);
 
-    auto sec = (int)sampleRate;
+    auto sec = (float)sampleRate;
     m->setSmoothingLengthInSamples(param::getID(param::ID::LFOSync), 0); // example for snappy param
+    m->setSmoothingLengthInSamples(param::getID(param::ID::LFOWaveTable), 0);
     m->setSmoothingLengthInSamples(param::getID(param::ID::ModulesMix), sec / 8); // example for quick param
     m->setSmoothingLengthInSamples(param::getID(param::ID::Depth), sec); // example for slow param
     m->setSmoothingLengthInSamples(param::getID(param::ID::EnvFolAtk), sec / 64);
@@ -159,8 +170,8 @@ void ModularTestAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, 
     for (auto i = totalNumInputChannels; i < totalNumOutputChannels; ++i)
         buffer.clear (i, 0, buffer.getNumSamples());
 
-    auto newMatrix = matrix2.load();
-    newMatrix->processBlock(buffer, getPlayHead());
+    auto matx = matrix2.load();
+    matx->processBlock(buffer, getPlayHead());
 }
 
 bool ModularTestAudioProcessor::hasEditor() const { return true; }

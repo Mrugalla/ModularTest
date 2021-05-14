@@ -3,7 +3,7 @@
 #include <JuceHeader.h>
 
 namespace param {
-	enum class ID { Macro0, Macro1, Macro2, Macro3, Depth, ModulesMix, EnvFolAtk, EnvFolRls, EnvFolWdth, LFOSync, LFORate, LFOWdth };
+	enum class ID { Macro0, Macro1, Macro2, Macro3, Depth, ModulesMix, EnvFolAtk, EnvFolRls, EnvFolWdth, LFOSync, LFORate, LFOWdth, LFOWaveTable };
 
 	static juce::String getName(ID i) {
 		switch (i) {
@@ -19,6 +19,7 @@ namespace param {
 		case ID::LFOSync: return "LFOSync";
 		case ID::LFORate: return "LFORate";
 		case ID::LFOWdth: return "LFOWdth";
+		case ID::LFOWaveTable: return "LFOWaveTable";
 		default: return "";
 		}
 	}
@@ -214,6 +215,15 @@ namespace param {
 		parameters.push_back(createPBool(ID::LFOSync, false, getSyncStr()));
 		parameters.push_back(createParameter(ID::LFORate, .5f, juce::NormalisableRange<float>(0.f, 1.f, 0.f), rateStr));
 		parameters.push_back(createParameter(ID::LFOWdth, 0.f, juce::NormalisableRange<float>(-1.f, 1.f, 0.f)));
+
+		const auto waveTableStrings = [](float value, int) {
+			return value < 1 ?
+				juce::String("SAW") : value < 2 ?
+				juce::String("SIN") :
+				juce::String("SQR");
+		};
+
+		parameters.push_back(createParameter(ID::LFOWaveTable, 0.f, juce::NormalisableRange<float>(0, 2, 1), waveTableStrings));
 		
 		return { parameters.begin(), parameters.end() };
 	}

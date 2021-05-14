@@ -25,6 +25,7 @@ ModularTestAudioProcessorEditor::ModularTestAudioProcessorEditor(ModularTestAudi
     lfoSyncP(audioProcessor, param::getID(param::ID::LFOSync), audioProcessor.getChannelCountOfBus(false, 0)),
     lfoRateP(audioProcessor, param::getID(param::ID::LFORate), audioProcessor.getChannelCountOfBus(false, 0)),
     lfoWdthP(audioProcessor, param::getID(param::ID::LFOWdth), audioProcessor.getChannelCountOfBus(false, 0)),
+    lfoWaveTableP(audioProcessor, param::getID(param::ID::LFOWaveTable), audioProcessor.getChannelCountOfBus(false, 0)),
     lfoDisplay(0, audioProcessor.getChannelCountOfBus(false, 0)),
 
     modulesLabel("Modules", "Modules"),
@@ -52,7 +53,8 @@ ModularTestAudioProcessorEditor::ModularTestAudioProcessorEditor(ModularTestAudi
     addAndMakeVisible(envFolWdthP); addAndMakeVisible(envFolDisplay);
 
     addAndMakeVisible(lfoSyncP); addAndMakeVisible(lfoRateP);
-    addAndMakeVisible(lfoWdthP); addAndMakeVisible(lfoDisplay);
+    addAndMakeVisible(lfoWdthP); addAndMakeVisible(lfoWaveTableP);
+    addAndMakeVisible(lfoDisplay);
 
     addAndMakeVisible(macro0Dragger); addAndMakeVisible(macro1Dragger);
     addAndMakeVisible(macro2Dragger); addAndMakeVisible(macro3Dragger);
@@ -70,7 +72,7 @@ void ModularTestAudioProcessorEditor::resized() {
     auto x = 0.f;
     auto y = 0.f;
     auto height = (float)getHeight() / 5.f;
-    const auto width = getWidth() / 4.f;
+    const auto width = getWidth() / 5.f;
     const auto knobWidth = width / 2.f;
 
     macrosLabel.setBounds(maxQuadIn(juce::Rectangle<float>(x, y, width, height)).reduced(10).toNearestInt());
@@ -108,7 +110,7 @@ void ModularTestAudioProcessorEditor::resized() {
 
     const auto modulesX = x;
     const auto moduleHeight = height / 2.f;
-    auto moduleObjWidth = width / 3.f;
+    auto moduleObjWidth = width / 2.f;
     envFolDragger.setQBounds(maxQuadIn(juce::Rectangle<float>(x, y, moduleObjWidth, moduleHeight)).toNearestInt());
     x += moduleObjWidth;
     envFolDisplay.setBounds(maxQuadIn(juce::Rectangle<float>(x, y, moduleObjWidth, moduleHeight)).toNearestInt());
@@ -131,6 +133,8 @@ void ModularTestAudioProcessorEditor::resized() {
     lfoRateP.setBounds(maxQuadIn(juce::Rectangle<float>(x, y, moduleObjWidth, moduleHeight)).toNearestInt());
     x += moduleObjWidth;
     lfoWdthP.setBounds(maxQuadIn(juce::Rectangle<float>(x, y, moduleObjWidth, moduleHeight)).toNearestInt());
+    x += moduleObjWidth;
+    lfoWaveTableP.setBounds(maxQuadIn(juce::Rectangle<float>(x, y, moduleObjWidth, moduleHeight)).toNearestInt());
 }
 
 void ModularTestAudioProcessorEditor::timerCallback() {
@@ -148,6 +152,6 @@ void ModularTestAudioProcessorEditor::timerCallback() {
     envFolDragger.timerCallback(matrix);
 
     lfoSyncP.timerCallback(matrix); lfoRateP.timerCallback(matrix);
-    lfoWdthP.timerCallback(matrix); lfoDisplay.timerCallback(matrix);
-    lfoDragger.timerCallback(matrix);
+    lfoWdthP.timerCallback(matrix); lfoWaveTableP.timerCallback(matrix);
+    lfoDisplay.timerCallback(matrix); lfoDragger.timerCallback(matrix);
 }

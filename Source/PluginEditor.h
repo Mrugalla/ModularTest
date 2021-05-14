@@ -28,7 +28,7 @@ protected:
     modSys2Editor::ParameterExample envFolAtkP, envFolRlsP, envFolWdthP;
     modSys2Editor::EnvelopeFollowerDisplay envFolDisplay;
 
-    modSys2Editor::ParameterExample lfoSyncP, lfoRateP, lfoWdthP;
+    modSys2Editor::ParameterExample lfoSyncP, lfoRateP, lfoWdthP, lfoWaveTableP;
     modSys2Editor::LFODisplay lfoDisplay;
 
     juce::Label modulesLabel;

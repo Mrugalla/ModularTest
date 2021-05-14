@@ -4,6 +4,7 @@
               addUsingNamespaceToJuceHeader="0" jucerFormatVersion="1">
   <MAINGROUP id="QprMvA" name="ModularTest">
     <GROUP id="{6B0F515F-3279-3B4A-DB76-59393A3C6A76}" name="Source">
+      <FILE id="M6QAdX" name="Vec2D.h" compile="0" resource="0" file="Source/Vec2D.h"/>
       <FILE id="WJle3t" name="ReleasePool.cpp" compile="1" resource="0" file="Source/ReleasePool.cpp"/>
       <FILE id="HWyJvp" name="ReleasePool.h" compile="0" resource="0" file="Source/ReleasePool.h"/>
       <FILE id="Dibimv" name="ModSystem.h" compile="0" resource="0" file="Source/ModSystem.h"/>
