@@ -1,26 +1,32 @@
+/*
+* if you came here because of my youtube videos saying that this is thread-safe
+* pls beware that i was proven wrong already.
+* almost everything about this is pretty cool, but atomically loading the modulation-
+* matrix in processBlock is not lock-free, which is bad obviously.
+* i'll have to reimplement this with a different thread-safety-method soon.
+* until then feel free to have a look at everything but don't take it
+* too seriously yet.
+*/
+
 #pragma once
 #include <JuceHeader.h>
-
 /*
-* reference counted pointer to an arbitrary underlying object
+* a pointer to an arbitrary underlying object
 */
 struct Anything {
     template<typename T>
-    Anything(const std::shared_ptr<T>& d) :
-        data(d)
-    {}
-    Anything() :
-        data(nullptr)
-    {}
+    static Anything make(T&& args) { Anything anyNewThing; anyNewThing.set<T>(std::forward<T>(args)); return anyNewThing; }
     template<typename T>
-    static std::shared_ptr<T> make(const T&& args) { return std::make_shared<T>(args); }
+    void set(T&& args) { ptr = new T(args); }
     template<typename T>
-    void add(const T&& args) { data = make<T>(args); }
-    void clear() noexcept { data.reset(); }
+    void reset() noexcept { delete get<T>(); }
     template<typename T>
-    const T* get() const noexcept { return static_cast<T*>(data.get()); }
-    const long use_count() const noexcept { return data.use_count(); }
-    std::shared_ptr<void> data;
+    const T* get() const noexcept { return static_cast<T*>(ptr); }
+    void* ptr;
+
+    /* to do:
+    * check out std::any, might not need this
+    */
 };
 
 /*
@@ -56,7 +62,7 @@ struct ReleasePool :
 
     static ReleasePool theReleasePool;
 private:
-    std::vector<Anything> pool;
+    std::vector<std::shared_ptr<void>> pool;
     juce::CriticalSection mutex;
 };
 
@@ -78,3 +84,7 @@ struct ThreadSafeObject {
 protected:
     std::shared_ptr<Obj> obj;
 };
+
+/* to do:
+* rewrite all this so that it uses juce::AbstractFifo and see if it works better
+*/

@@ -40,14 +40,22 @@ ModularTestAudioProcessor::ModularTestAudioProcessor()
     );
 
     std::vector<Anything> waveTableInfo;
-    waveTableInfo.push_back(Anything::make<int>(512)); // tableSize
+    auto tableSizePointer = Anything::make<int>(512);
     const auto tableSaw = [](float x) { return x; };
     const auto tableSine = [t = modSys2::tau](float x) { return .5f * std::sin(x * t) + .5f; };
     const auto tableSquare = [](float x) { return x < .5f ? 0.f : 1.f; };
-    waveTableInfo.push_back(Anything::make<std::function<float(float)>>(tableSaw));
-    waveTableInfo.push_back(Anything::make<std::function<float(float)>>(tableSine));
-    waveTableInfo.push_back(Anything::make<std::function<float(float)>>(tableSquare));
+    auto sawPtr = Anything::make<std::function<float(float)>>(tableSaw);
+    auto sinePtr = Anything::make<std::function<float(float)>>(tableSaw);
+    auto sqrPtr = Anything::make<std::function<float(float)>>(tableSaw);
+    waveTableInfo.push_back(tableSizePointer); // tableSize
+    waveTableInfo.push_back(sawPtr);
+    waveTableInfo.push_back(sinePtr);
+    waveTableInfo.push_back(sqrPtr);
     lfoMod->addStuff("wavetables", waveTableInfo);
+    tableSizePointer.reset<int>();
+    sawPtr.reset<std::function<float(float)>>();
+    sinePtr.reset<std::function<float(float)>>();
+    sqrPtr.reset<std::function<float(float)>>();
 }
 
 ModularTestAudioProcessor::~ModularTestAudioProcessor()
