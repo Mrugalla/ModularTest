@@ -91,7 +91,7 @@ struct ThreadSafeObject {
         ReleasePool::theReleasePool.add(curPtr);
     }
     std::shared_ptr<Type> loadCurrentPtr() noexcept { // Message Thread (if just changing an atomic)
-        return curPtr;
+        return std::atomic_load(&curPtr);
     }
     std::shared_ptr<Type> updateAndLoadCurrentPtr() noexcept {  // Audio Thread
         const juce::SpinLock::ScopedLockType lock(spinLock);
