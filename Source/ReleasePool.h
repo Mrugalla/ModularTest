@@ -1,6 +1,6 @@
 #pragma once
 #include <JuceHeader.h>
-#include <any>
+
 /*
 * a pointer to an arbitrary underlying object (deprecated)
 */
@@ -37,6 +37,7 @@ protected:
     std::vector<std::shared_ptr<void>> data;
     /*
     * try to rewrite this with different smart pointers and/or std::any some time
+    * or with juce::Var?
     */
 };
 
@@ -87,31 +88,35 @@ struct ThreadSafeObject {
         curPtr(ob),
         updatedPtr(ob),
         spinLock()
-    {
-        ReleasePool::theReleasePool.add(curPtr);
-    }
+    { ReleasePool::theReleasePool.add(curPtr); }
     std::shared_ptr<Type> loadCurrentPtr() noexcept { // Message Thread (if just changing an atomic)
-        return std::atomic_load(&curPtr);
+        jassert(juce::MessageManager::getInstance()->isThisTheMessageThread());
+        return curPtr;
     }
     std::shared_ptr<Type> updateAndLoadCurrentPtr() noexcept {  // Audio Thread
-        const juce::SpinLock::ScopedLockType lock(spinLock);
-        if (spinLock.tryEnter()) {
-            spinLock.enter();
-            curPtr = updatedPtr;
-            spinLock.exit();
+        if (curPtr != updatedPtr) {
+            if (spinLock.tryEnter()) {
+                curPtr = updatedPtr;
+                spinLock.exit();
+            }
         }
         return curPtr;
     }
     std::shared_ptr<Type> copy() const { // Message Thread (for adding modulators and stuff)
-        auto loadedPtr = std::atomic_load(&curPtr);
-        return std::make_shared<Type>(Type(loadedPtr.get()));
+        jassert(juce::MessageManager::getInstance()->isThisTheMessageThread());
+        return std::make_shared<Type>(Type(*curPtr.get()));
     }
     void replaceUpdatedPtrWith(std::shared_ptr<Type>& newPtr) { // Message Thread (for adding modulators and stuff)
+        jassert(juce::MessageManager::getInstance()->isThisTheMessageThread());
         ReleasePool::theReleasePool.add(newPtr);
-        std::atomic_store(&updatedPtr, newPtr);
+        spinLock.enter();
+        updatedPtr = newPtr;
+        spinLock.exit();
     }
     void align() { // at the end of PrepareToPlay
-        std::atomic_store(&updatedPtr, curPtr);
+        spinLock.enter();
+        updatedPtr = curPtr;
+        spinLock.exit();
     }
     Type* operator->() noexcept { return curPtr.get(); }
 protected:

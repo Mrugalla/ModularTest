@@ -555,6 +555,28 @@ namespace modSys2 {
 	};
 
 	/*
+	* a random modulator
+	*/
+	class RandomModulator :
+		public Modulator
+	{
+		RandomModulator() :
+			Modulator(juce::String("ok"))
+		{}
+		void processBlock(const juce::AudioBuffer<float>& audioBuffer, Block& block, juce::AudioPlayHead::CurrentPositionInfo& playHead) override {
+			const auto numChannels = audioBuffer.getNumChannels();
+			const auto numSamples = audioBuffer.getNumSamples();
+			const auto lastSample = numSamples - 1;
+			
+			for (auto ch = 0; ch < numChannels; ++ch)
+				storeOutValue(block(ch, lastSample), ch);
+		}
+		/*
+		* this thing is obviously not very finished yet, lmao
+		*/
+	};
+
+	/*
 	* some identifiers used for serialization
 	*/
 	struct Type {
@@ -595,12 +617,12 @@ namespace modSys2 {
 				}
 			}
 		}
-		Matrix(const Matrix* other) :
-			parameters(other->parameters),
-			modulators(other->modulators),
+		Matrix(const Matrix& other) :
+			parameters(other.parameters),
+			modulators(other.modulators),
 			curPosInfo(getDefaultPlayHead()),
-			block(other->block),
-			selectedModulator(other->selectedModulator)
+			block(other.block),
+			selectedModulator(other.selectedModulator)
 		{}
 		// SET
 		void prepareToPlay(const int numChannels, const int blockSize, const double sampleRate) {
