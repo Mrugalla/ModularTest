@@ -1,31 +1,42 @@
-/*
-* if you came here because of my youtube videos saying that this is thread-safe
-* pls beware that i was proven wrong already.
-* almost everything about this is pretty cool, but atomically loading the modulation-
-* matrix in processBlock is not lock-free, which is bad obviously.
-* i'll have to reimplement this with a different thread-safety-method soon.
-* until then feel free to have a look at everything but don't take it
-* too seriously yet.
-*/
-
 #pragma once
 #include <JuceHeader.h>
+#include <any>
 /*
-* a pointer to an arbitrary underlying object
+* a pointer to an arbitrary underlying object (deprecated)
 */
 struct Anything {
+    Anything() : ptr(nullptr) {}
+    ~Anything() {}
     template<typename T>
     static Anything make(T&& args) { Anything anyNewThing; anyNewThing.set<T>(std::forward<T>(args)); return anyNewThing; }
     template<typename T>
-    void set(T&& args) { ptr = new T(args); }
+    void set(T&& args) { if(ptr == nullptr) ptr = new T(args); }
     template<typename T>
-    void reset() noexcept { delete get<T>(); }
+    void reset() noexcept { delete get<T>(); ptr = nullptr; }
     template<typename T>
     const T* get() const noexcept { return static_cast<T*>(ptr); }
     void* ptr;
+};
 
-    /* to do:
-    * check out std::any, might not need this
+/*
+* pointers to arbitrary underlying objects
+*/
+struct VectorAnything {
+    VectorAnything() :
+        data()
+    {}
+    template<typename T>
+    void add(const T&& args) { data.push_back(std::make_shared<T>(args)); }
+    template<typename T>
+    T* get(const int idx) const noexcept {
+        auto newShredPtr = data[idx].get();
+        return static_cast<T*>(newShredPtr);
+    }
+    const size_t size() const noexcept { return data.size(); }
+protected:
+    std::vector<std::shared_ptr<void>> data;
+    /*
+    * try to rewrite this with different smart pointers and/or std::any some time
     */
 };
 
@@ -70,21 +81,46 @@ private:
 * reference counted pointer to object that uses a static release pool
 * to ensure thread-safety
 */
-template<class Obj>
+template<class Type>
 struct ThreadSafeObject {
-    ThreadSafeObject(const std::shared_ptr<Obj>&& ob) :
-        obj(ob)
-    { ReleasePool::theReleasePool.add(obj); }
-    std::shared_ptr<Obj> load() { return std::atomic_load(&obj); }
-    std::shared_ptr<Obj> copy() { return std::make_shared<Obj>(Obj(load().get())); }
-    void replaceWith(std::shared_ptr<Obj>& newObj) {
-        ReleasePool::theReleasePool.add(newObj);
-        std::atomic_store(&obj, newObj);
+    ThreadSafeObject(const std::shared_ptr<Type>&& ob) :
+        curPtr(ob),
+        updatedPtr(ob),
+        spinLock()
+    {
+        ReleasePool::theReleasePool.add(curPtr);
     }
+    std::shared_ptr<Type> loadCurrentPtr() noexcept { // Message Thread (if just changing an atomic)
+        return curPtr;
+    }
+    std::shared_ptr<Type> updateAndLoadCurrentPtr() noexcept {  // Audio Thread
+        const juce::SpinLock::ScopedLockType lock(spinLock);
+        if (spinLock.tryEnter()) {
+            spinLock.enter();
+            curPtr = updatedPtr;
+            spinLock.exit();
+        }
+        return curPtr;
+    }
+    std::shared_ptr<Type> copy() const { // Message Thread (for adding modulators and stuff)
+        auto loadedPtr = std::atomic_load(&curPtr);
+        return std::make_shared<Type>(Type(loadedPtr.get()));
+    }
+    void replaceUpdatedPtrWith(std::shared_ptr<Type>& newPtr) { // Message Thread (for adding modulators and stuff)
+        ReleasePool::theReleasePool.add(newPtr);
+        std::atomic_store(&updatedPtr, newPtr);
+    }
+    void align() { // at the end of PrepareToPlay
+        std::atomic_store(&updatedPtr, curPtr);
+    }
+    Type* operator->() noexcept { return curPtr.get(); }
 protected:
-    std::shared_ptr<Obj> obj;
+    std::shared_ptr<Type> curPtr;
+    std::shared_ptr<Type> updatedPtr;
+    juce::SpinLock spinLock;
 };
 
 /* to do:
-* rewrite all this so that it uses juce::AbstractFifo and see if it works better
+* experimental rewrite that uses juce::AbstractFifo
+*   try what works better
 */

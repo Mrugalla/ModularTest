@@ -29,13 +29,13 @@ namespace modSys2Editor {
 				g.drawEllipse(getLocalBounds().toFloat(), 1);
 			}
 			void mouseDown(const juce::MouseEvent& evt) override {
-				auto matrix = processor.matrix2.load();
+				auto matrix = processor.matrix.loadCurrentPtr();
 				const auto s = matrix->getSelectedModulator()->get();
 				auto atten = s->getAttenuvertor(parameter.id);
 				dragStartValue = atten;
 			}
 			void mouseDrag(const juce::MouseEvent& evt) override {
-				const auto matrix = processor.matrix2.load();
+				const auto matrix = processor.matrix.loadCurrentPtr();
 				const auto distance = evt.getDistanceFromDragStartY();
 				const auto v = -distance / static_cast<float>(getHeight());
 				const auto speed = evt.mods.isShiftDown() ? .01f : .1f;
@@ -46,10 +46,10 @@ namespace modSys2Editor {
 			void mouseUp(const juce::MouseEvent& evt) override {
 				if (evt.mouseWasDraggedSinceMouseDown()) return;
 				else if (evt.mods.isRightButtonDown()) {
-					auto matrix = processor.matrix2.copy();
+					auto matrix = processor.matrix.copy();
 					const auto m = matrix->getSelectedModulator()->get();
 					matrix->removeDestination(m->id, parameter.id);
-					processor.matrix2.replaceWith(matrix);
+					processor.matrix.replaceUpdatedPtrWith(matrix);
 				}
 			}
 
@@ -108,7 +108,7 @@ namespace modSys2Editor {
 
 		void selectLinkedModulator() {
 			if (linkedModulatorID.isValid()) {
-				const auto matrix = processor.matrix2.load();
+				const auto matrix = processor.matrix.loadCurrentPtr();
 				matrix.get()->selectModulator(linkedModulatorID);
 			}
 		}
@@ -123,7 +123,8 @@ namespace modSys2Editor {
 		public Parameter
 	{
 		ParameterExample(ModularTestAudioProcessor& p, const juce::String& pID, const int numChannels, const juce::String& linkedModID = "") :
-			Parameter(p, pID, numChannels, linkedModID)
+			Parameter(p, pID, numChannels, linkedModID),
+			dragStartValue(0)
 		{ }
 	protected:
 		float dragStartValue;
@@ -195,7 +196,7 @@ namespace modSys2Editor {
 
 		void selectLinkedModulator() {
 			if (linkedModulatorID.isValid()) {
-				const auto matrix = processor.matrix2.load();
+				const auto matrix = processor.matrix.loadCurrentPtr();
 				matrix.get()->selectModulator(linkedModulatorID);
 			}
 		}
@@ -239,7 +240,7 @@ namespace modSys2Editor {
 		bool selected;
 
 		void mouseDown(const juce::MouseEvent& evt) override {
-			const auto matrix = processor.matrix2.load();
+			const auto matrix = processor.matrix.loadCurrentPtr();
 			matrix.get()->selectModulator(id);
 			selected = true;
 			draggerfall.startDraggingComponent(this, evt);
@@ -250,13 +251,13 @@ namespace modSys2Editor {
 		}
 		void mouseUp(const juce::MouseEvent&) override {
 			if (hoveredParameter != nullptr) {
-				auto matrix = processor.matrix2.copy();
+				auto matrix = processor.matrix.copy();
 				const auto& m = matrix->getModulator(id)->get();
 				const auto& p = matrix->getParameter(hoveredParameter->id)->get();
 				const auto pValue = processor.apvts.getRawParameterValue(p->id);
 				const auto atten = 1.f - *pValue;
 				matrix->addDestination(m->id, p->id, atten);
-				processor.matrix2.replaceWith(matrix);
+				processor.matrix.replaceUpdatedPtrWith(matrix);
 				hoveredParameter = nullptr;
 			}
 			setBounds(bounds);

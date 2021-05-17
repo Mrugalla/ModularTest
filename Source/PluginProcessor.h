@@ -259,7 +259,7 @@ struct ModularTestAudioProcessor :
 
 	param::MultiRange lfoFreeSyncRanges;
 	juce::AudioProcessorValueTreeState apvts;
-	ThreadSafeObject<modSys2::Matrix> matrix2;
+	ThreadSafeObject<modSys2::Matrix> matrix;
 	
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (ModularTestAudioProcessor)
 };

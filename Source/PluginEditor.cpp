@@ -138,7 +138,7 @@ void ModularTestAudioProcessorEditor::resized() {
 }
 
 void ModularTestAudioProcessorEditor::timerCallback() {
-    const auto matrix = audioProcessor.matrix2.load();
+    const auto matrix = audioProcessor.matrix.loadCurrentPtr();
     
     macro0P.timerCallback(matrix); macro1P.timerCallback(matrix);
     macro2P.timerCallback(matrix); macro3P.timerCallback(matrix);

@@ -275,7 +275,7 @@ namespace modSys2 {
 				}
 			}
 		}
-		virtual void addStuff(const juce::Identifier& sID, const std::vector<Anything>& stuff) {}
+		virtual void addStuff(const juce::String& sID, const VectorAnything& stuff) {}
 		// PROCESS
 		void setAttenuvertor(const juce::Identifier& pID, const float value) {
 			auto d = getDestination(pID);
@@ -461,13 +461,13 @@ namespace modSys2 {
 			phase.resize(numChannels);
 			fsInv = 1.f / Fs;
 		}
-		void addStuff(const juce::Identifier& sID, const std::vector<Anything>& stuff) override {
-			if (sID.toString() == "wavetables") {
+		void addStuff(const juce::String& sID, const VectorAnything& stuff) override {
+			if (sID == "wavetables") {
 				const auto tablesCount = stuff.size() - 1;
-				const auto tableSize = stuff[0].get<int>();
+				const auto tableSize = stuff.get<int>(0);
 				waveTables.resize(tablesCount, *tableSize);
 				for (auto i = 1; i < stuff.size(); ++i) {
-					const auto wtFunc = stuff[i].get<std::function<float(float)>>();
+					const auto wtFunc = stuff.get<std::function<float(float)>>(i);
 					waveTables.addWaveTable(*wtFunc, i - 1);
 				}	
 			}
