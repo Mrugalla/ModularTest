@@ -3,7 +3,7 @@
 #include <JuceHeader.h>
 
 namespace param {
-	enum class ID { Macro0, Macro1, Macro2, Macro3, Depth, ModulesMix, EnvFolAtk, EnvFolRls, EnvFolWdth, LFOSync, LFORate, LFOWdth, LFOWaveTable };
+	enum class ID { Macro0, Macro1, Macro2, Macro3, Depth, ModulesMix, EnvFolAtk, EnvFolRls, EnvFolWdth, LFOSync, LFORate, LFOWdth, LFOWaveTable, RandSync, RandRate, RandBias };
 
 	static juce::String getName(ID i) {
 		switch (i) {
@@ -20,6 +20,9 @@ namespace param {
 		case ID::LFORate: return "LFORate";
 		case ID::LFOWdth: return "LFOWdth";
 		case ID::LFOWaveTable: return "LFOWaveTable";
+		case ID::RandSync: return "RandSync";
+		case ID::RandRate: return "RandRate";
+		case ID::RandBias: return "RandBias";
 		default: return "";
 		}
 	}
@@ -224,7 +227,11 @@ namespace param {
 		};
 
 		parameters.push_back(createParameter(ID::LFOWaveTable, 0.f, juce::NormalisableRange<float>(0, 2, 1), waveTableStrings));
-		
+
+		parameters.push_back(createPBool(ID::RandSync, false, getSyncStr()));
+		parameters.push_back(createParameter(ID::RandRate, .5f, juce::NormalisableRange<float>(0.f, 1.f, 0.f), rateStr));
+		parameters.push_back(createParameter(ID::RandBias, .5f));
+
 		return { parameters.begin(), parameters.end() };
 	}
 };

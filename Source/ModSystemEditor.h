@@ -29,13 +29,13 @@ namespace modSys2Editor {
 				g.drawEllipse(getLocalBounds().toFloat(), 1);
 			}
 			void mouseDown(const juce::MouseEvent& evt) override {
-				auto matrix = processor.matrix.loadCurrentPtr();
+				auto matrix = processor.matrix.getUpdatedPtr();
 				const auto s = matrix->getSelectedModulator()->get();
 				auto atten = s->getAttenuvertor(parameter.id);
 				dragStartValue = atten;
 			}
 			void mouseDrag(const juce::MouseEvent& evt) override {
-				const auto matrix = processor.matrix.loadCurrentPtr();
+				const auto matrix = processor.matrix.getUpdatedPtr();
 				const auto distance = evt.getDistanceFromDragStartY();
 				const auto v = -distance / static_cast<float>(getHeight());
 				const auto speed = evt.mods.isShiftDown() ? .01f : .1f;
@@ -46,7 +46,7 @@ namespace modSys2Editor {
 			void mouseUp(const juce::MouseEvent& evt) override {
 				if (evt.mouseWasDraggedSinceMouseDown()) return;
 				else if (evt.mods.isRightButtonDown()) {
-					auto matrix = processor.matrix.copy();
+					auto matrix = processor.matrix.getCopyOfUpdatedPtr();
 					const auto m = matrix->getSelectedModulator()->get();
 					matrix->removeDestination(m->id, parameter.id);
 					processor.matrix.replaceUpdatedPtrWith(matrix);
@@ -108,7 +108,7 @@ namespace modSys2Editor {
 
 		void selectLinkedModulator() {
 			if (linkedModulatorID.isValid()) {
-				const auto matrix = processor.matrix.loadCurrentPtr();
+				const auto matrix = processor.matrix.getUpdatedPtr();
 				matrix.get()->selectModulator(linkedModulatorID);
 			}
 		}
@@ -196,7 +196,7 @@ namespace modSys2Editor {
 
 		void selectLinkedModulator() {
 			if (linkedModulatorID.isValid()) {
-				const auto matrix = processor.matrix.loadCurrentPtr();
+				const auto matrix = processor.matrix.getUpdatedPtr();
 				matrix.get()->selectModulator(linkedModulatorID);
 			}
 		}
@@ -240,7 +240,7 @@ namespace modSys2Editor {
 		bool selected;
 
 		void mouseDown(const juce::MouseEvent& evt) override {
-			const auto matrix = processor.matrix.loadCurrentPtr();
+			const auto matrix = processor.matrix.getUpdatedPtr();
 			matrix.get()->selectModulator(id);
 			selected = true;
 			draggerfall.startDraggingComponent(this, evt);
@@ -251,7 +251,7 @@ namespace modSys2Editor {
 		}
 		void mouseUp(const juce::MouseEvent&) override {
 			if (hoveredParameter != nullptr) {
-				auto matrix = processor.matrix.copy();
+				auto matrix = processor.matrix.getCopyOfUpdatedPtr();
 				const auto& m = matrix->getModulator(id)->get();
 				const auto& p = matrix->getParameter(hoveredParameter->id)->get();
 				const auto pValue = processor.apvts.getRawParameterValue(p->id);
@@ -301,7 +301,7 @@ namespace modSys2Editor {
 	{
 		EnvelopeFollowerDisplay(int envFolIdx, const int numChannels) :
 			juce::Component(),
-			modSys2::Identifiable(juce::String("EnvFol" + envFolIdx)),
+			modSys2::Identifiable(juce::String("EnvFol" + juce::String(envFolIdx))),
 			curValue(0.f)
 		{ curValue.resize(numChannels); }
 		void timerCallback(const std::shared_ptr<modSys2::Matrix>& matrix) {
@@ -335,22 +335,23 @@ namespace modSys2Editor {
 	};
 
 	/*
-	* 
+	* display for lfo & rand mod data
 	*/
 	struct LFODisplay :
 		public juce::Component,
 		public modSys2::Identifiable
 	{
-		LFODisplay(const int phaseID, const int numChannels) :
+		LFODisplay(const juce::String& mID, const int numChannels) :
 			juce::Component(),
-			modSys2::Identifiable(juce::String("Phase" + phaseID)),
+			modSys2::Identifiable(mID),
 			img(juce::Image::RGB, 1, 1, true),
 			curValue(0.f)
 		{ curValue.resize(numChannels); }
 		void timerCallback(const std::shared_ptr<modSys2::Matrix>& matrix) {
 			bool needRepaint = false;
 			for (auto ch = 0; ch < curValue.size(); ++ch) {
-				auto newValue = matrix->getModulator(id)->get()->getOutValue(ch);
+				const auto mod = matrix->getModulator(id);
+				auto newValue = mod->get()->getOutValue(ch);
 				if (curValue[ch] != newValue) {
 					curValue[ch] = newValue;
 					needRepaint = true;
@@ -376,9 +377,9 @@ namespace modSys2Editor {
 				juce::Rectangle<float> valuePt(x - 1, y - 1, 3, 3);
 				g0.fillEllipse(valuePt);
 			}
-
 			g.drawImageAt(img, 0, 0, false);
 		}
 		JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(LFODisplay)
 	};
+
 }

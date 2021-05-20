@@ -2,23 +2,6 @@
 #include <JuceHeader.h>
 
 /*
-* a pointer to an arbitrary underlying object (deprecated)
-*/
-struct Anything {
-    Anything() : ptr(nullptr) {}
-    ~Anything() {}
-    template<typename T>
-    static Anything make(T&& args) { Anything anyNewThing; anyNewThing.set<T>(std::forward<T>(args)); return anyNewThing; }
-    template<typename T>
-    void set(T&& args) { if(ptr == nullptr) ptr = new T(args); }
-    template<typename T>
-    void reset() noexcept { delete get<T>(); ptr = nullptr; }
-    template<typename T>
-    const T* get() const noexcept { return static_cast<T*>(ptr); }
-    void* ptr;
-};
-
-/*
 * pointers to arbitrary underlying objects
 */
 struct VectorAnything {
@@ -29,10 +12,15 @@ struct VectorAnything {
     void add(const T&& args) { data.push_back(std::make_shared<T>(args)); }
     template<typename T>
     T* get(const int idx) const noexcept {
-        auto newShredPtr = data[idx].get();
-        return static_cast<T*>(newShredPtr);
+        auto newShredPtr = data[idx];
+        return static_cast<T*>(newShredPtr.get());
     }
     const size_t size() const noexcept { return data.size(); }
+    void dbgRefCount() const noexcept {
+        juce::String str;
+        for (const auto& d : data) str += juce::String(d.use_count()) + ", ";
+        DBG(str);
+    }
 protected:
     std::vector<std::shared_ptr<void>> data;
     /*
@@ -55,21 +43,33 @@ struct ReleasePool :
     void add(const std::shared_ptr<T>& ptr) {
         const juce::ScopedLock lock(mutex);
         if (ptr == nullptr) return;
+        for (const auto& p : pool) if (p.get() == ptr.get()) return;
         pool.emplace_back(ptr);
         if (!isTimerRunning())
             startTimer(10000);
     }
-    void timerCallback() override {
+    template<typename T>
+    void remove(const std::shared_ptr<T>& ptr) {
+        for (auto p = 0; p < pool.size(); ++p)
+            if (pool[p] == ptr) {
+                pool.erase(pool.begin() + p);
+                return;
+            }
+    }
+    void timerCallback() override { release(); }
+    void release() {
         const juce::ScopedLock lock(mutex);
         pool.erase(
             std::remove_if(
-                pool.begin(), pool.end(), [](auto& object) { return object.use_count() <= 1; }),
+                pool.begin(), pool.end(), [](auto& object) { return object.use_count() < 2; }),
             pool.end());
     }
-    void dbg() {
-        DBG("SIZE: " << pool.size());
+    void dbg() const {
+        juce::String str("RP Size: ");
+        str += juce::String(pool.size()) + " :: ";
         for (const auto& p : pool)
-            DBG("COUNT: " << p.use_count());
+            str += juce::String(p.use_count()) + ", ";
+        DBG(str);
     }
 
     static ReleasePool theReleasePool;
@@ -79,46 +79,50 @@ private:
 };
 
 /*
-* reference counted pointer to object that uses a static release pool
-* to ensure thread-safety
+* reference counted pointer to an object that uses a static release pool
+* to ensure thread- and realtime-safety
 */
 template<class Type>
-struct ThreadSafeObject {
-    ThreadSafeObject(const std::shared_ptr<Type>&& ob) :
-        curPtr(ob),
-        updatedPtr(ob),
+struct ThreadSafePtr {
+    ThreadSafePtr(const Type&& args) :
+        curPtr(std::make_shared<Type>(args)),
+        updatedPtr(curPtr),
         spinLock()
     { ReleasePool::theReleasePool.add(curPtr); }
-    std::shared_ptr<Type> loadCurrentPtr() noexcept { // Message Thread (if just changing an atomic)
-        jassert(juce::MessageManager::getInstance()->isThisTheMessageThread());
-        return curPtr;
+    ~ThreadSafePtr() {
+        curPtr.reset(); updatedPtr.reset();
+        ReleasePool::theReleasePool.release();
     }
-    std::shared_ptr<Type> updateAndLoadCurrentPtr() noexcept {  // Audio Thread
-        if (curPtr != updatedPtr) {
+    std::shared_ptr<Type> getCopyOfUpdatedPtr() {
+        spinLock.enter();
+        auto copiedPtr = std::make_shared<Type>(*updatedPtr.get());
+        spinLock.exit();
+        return copiedPtr;
+    }
+    void replaceUpdatedPtrWith(const std::shared_ptr<Type>& newPtr) {
+        spinLock.enter();
+        updatedPtr = newPtr;
+        ReleasePool::theReleasePool.add(updatedPtr);
+        spinLock.exit();
+    }
+    std::shared_ptr<Type> getUpdatedPtr() noexcept {
+        return updatedPtr;
+    }
+    std::shared_ptr<Type> updateAndLoadCurrentPtr() noexcept {
+        if (curPtr != updatedPtr)
             if (spinLock.tryEnter()) {
                 curPtr = updatedPtr;
                 spinLock.exit();
             }
-        }
         return curPtr;
     }
-    std::shared_ptr<Type> copy() const { // Message Thread (for adding modulators and stuff)
-        jassert(juce::MessageManager::getInstance()->isThisTheMessageThread());
-        return std::make_shared<Type>(Type(*curPtr.get()));
+    const std::shared_ptr<Type>& operator->() const noexcept { return curPtr; }
+    void dbgReferenceCount(juce::String start = "") const noexcept {
+        DBG(start);
+        ReleasePool::theReleasePool.dbg();
+        DBG("current: " << curPtr.use_count() << " :: " << "updated: " << updatedPtr.use_count());
+        DBG("THEY ARE " << (curPtr == updatedPtr ? "THE SAME" : "DIFFERENT") << "\n");
     }
-    void replaceUpdatedPtrWith(std::shared_ptr<Type>& newPtr) { // Message Thread (for adding modulators and stuff)
-        jassert(juce::MessageManager::getInstance()->isThisTheMessageThread());
-        ReleasePool::theReleasePool.add(newPtr);
-        spinLock.enter();
-        updatedPtr = newPtr;
-        spinLock.exit();
-    }
-    void align() { // at the end of PrepareToPlay
-        spinLock.enter();
-        updatedPtr = curPtr;
-        spinLock.exit();
-    }
-    Type* operator->() noexcept { return curPtr.get(); }
 protected:
     std::shared_ptr<Type> curPtr;
     std::shared_ptr<Type> updatedPtr;
@@ -126,6 +130,5 @@ protected:
 };
 
 /* to do:
-* experimental rewrite that uses juce::AbstractFifo
-*   try what works better
+* check if everything really works again i guess
 */

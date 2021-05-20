@@ -289,6 +289,10 @@ namespace modSys2 {
 		void storeOutValue(const float lastSampleValue, const int ch) {
 			outValue[ch]->store(lastSampleValue);
 		}
+		void storeOutValue(Block& block, const int lastSample) {
+			for(auto ch = 0; ch < outValue.size(); ++ch)
+				outValue[ch]->store(block(ch, lastSample));
+		}
 		// GET
 		bool hasDestination(const juce::Identifier& pID) const noexcept {
 			const auto d = getDestination(pID);
@@ -557,23 +561,90 @@ namespace modSys2 {
 	/*
 	* a random modulator
 	*/
-	class RandomModulator :
+	struct RandomModulator :
 		public Modulator
 	{
-		RandomModulator() :
-			Modulator(juce::String("ok"))
+		RandomModulator(const juce::String& mID, const Parameter& syncParam, const Parameter& rateParam, const Parameter& biasParam, const param::MultiRange& ranges) :
+			Modulator(mID),
+			syncParameter(syncParam),
+			rateParameter(rateParam),
+			biasParameter(biasParam),
+			multiRange(ranges),
+			freeID(multiRange.getID("free")),
+			syncID(multiRange.getID("sync")),
+			phase(), randValue(),
+			rand(juce::Time::currentTimeMillis()),
+			fsInv(1)
 		{}
+		// SET
+		void prepareToPlay(const int numChannels, const double sampleRate) override {
+			Modulator::prepareToPlay(numChannels, sampleRate);
+			phase.resize(numChannels, 0);
+			randValue.resize(numChannels, 0);
+			fsInv = 1.f / Fs;
+		}
 		void processBlock(const juce::AudioBuffer<float>& audioBuffer, Block& block, juce::AudioPlayHead::CurrentPositionInfo& playHead) override {
 			const auto numChannels = audioBuffer.getNumChannels();
 			const auto numSamples = audioBuffer.getNumSamples();
-			const auto lastSample = numSamples - 1;
-			
-			for (auto ch = 0; ch < numChannels; ++ch)
-				storeOutValue(block(ch, lastSample), ch);
+			synthesizeRandomSignal(block, playHead, numChannels, numSamples);
+
+			storeOutValue(block, numSamples - 1);
 		}
-		/*
-		* this thing is obviously not very finished yet, lmao
-		*/
+	protected:
+		const Parameter& syncParameter;
+		const Parameter& rateParameter;
+		const Parameter& biasParameter;
+		const param::MultiRange& multiRange;
+		const juce::Identifier& freeID, syncID;
+		std::vector<float> phase, randValue;
+		juce::Random rand;
+		float fsInv;
+	private:
+		void synthesizeRandomSignal(Block& block, juce::AudioPlayHead::CurrentPositionInfo& playHead, const int numChannels, const int numSamples) {
+			const auto lastSample = numSamples - 1;
+			const bool isFree = syncParameter(0, 0) < .5f;
+
+			if (isFree)
+				for (auto ch = 0; ch < numChannels; ++ch) {
+					const auto rateValue = rateParameter(ch, lastSample);
+					const auto rate = multiRange(freeID).convertFrom0to1(rateValue);
+					const auto inc = rate * fsInv;
+					synthesizeRandomSignal(block, phase[ch], inc, numSamples, ch);
+				}
+			else {
+				const auto bpm = playHead.bpm;
+				const auto bps = bpm / 60.;
+				const auto quarterNoteLengthInSamples = Fs / bps;
+				const auto barLengthInSamples = quarterNoteLengthInSamples * 4.;
+				const auto ppq = playHead.ppqPosition * .25;
+				for (auto ch = 0; ch < numChannels; ++ch) {
+					const auto rateValue = rateParameter(ch, lastSample);
+					const auto rate = multiRange(syncID).convertFrom0to1(rateValue);
+					const auto inc = 1.f / (static_cast<float>(barLengthInSamples) * rate);
+					const auto ppqCh = static_cast<float>(ppq) / rate;
+					auto newPhase = (ppqCh - std::floor(ppqCh));
+					phase[ch] = newPhase;
+					synthesizeRandomSignal(block, newPhase, inc, numSamples, ch);
+				}
+			}
+		}
+		void synthesizeRandomSignal(Block& block, const float curPhase, const float inc, const int numSamples, const int ch) {
+			phase[ch] = curPhase;
+			for (auto s = 0; s < numSamples; ++s) {
+				phase[ch] += inc;
+				if (phase[ch] >= 1.f) {
+					--phase[ch];
+					randValue[ch] = getBiasedValue(rand.nextFloat(), ch, s);
+				}
+				block(ch, s) = randValue[ch];
+			}
+		}
+		const float getBiasedValue(float value, const int ch, const int s) const noexcept {
+			const auto biasValue = biasParameter(ch, s);
+			return biasValue < .5f ?
+				std::pow(value, 2 * biasValue) :
+				std::pow(value, 1.f / (1.f - 2.f * (biasValue - .5f)));
+		}
 	};
 
 	/*
@@ -692,7 +763,7 @@ namespace modSys2 {
 			const auto atkP = getParameter(atkPID)->get();
 			const auto rlsP = getParameter(rlsPID)->get();
 			const auto wdthP = getParameter(wdthPID)->get();
-			const juce::String idString("EnvFol" + idx);
+			const juce::String idString("EnvFol" + static_cast<juce::String>(idx));
 			modulators.push_back(std::make_shared<EnvelopeFollowerModulator>(idString, *atkP, *rlsP, *wdthP));
 			return modulators[modulators.size() - 1];
 		}
@@ -703,8 +774,18 @@ namespace modSys2 {
 			const auto rateP = getParameter(ratePID)->get();
 			const auto wdthP = getParameter(wdthPID)->get();
 			const auto waveTableP = getParameter(waveTablePID)->get();
-			const juce::String idString("Phase" + idx);
+			const juce::String idString("LFO" + static_cast<juce::String>(idx));
 			modulators.push_back(std::make_shared<LFOModulator>(idString, *syncP, *rateP, *wdthP, *waveTableP, ranges));
+			return modulators[modulators.size() - 1];
+		}
+		std::shared_ptr<Modulator>& addRandomModulator(const juce::Identifier& syncPID, const juce::Identifier& ratePID,
+			const juce::Identifier& biasPID,
+			const param::MultiRange& ranges, int idx) {
+			const auto syncP = getParameter(syncPID)->get();
+			const auto rateP = getParameter(ratePID)->get();
+			const auto biasP = getParameter(biasPID)->get();
+			const juce::String idString("Rand" + static_cast<juce::String>(idx));
+			modulators.push_back(std::make_shared<RandomModulator>(idString, *syncP, *rateP, *biasP, ranges));
 			return modulators[modulators.size() - 1];
 		}
 		// MODIFY / REPLACE
@@ -760,8 +841,10 @@ namespace modSys2 {
 
 	/* to do:
 	* 
-	* modulators
-	*	can be bidirectional
+	* make possible: modulators modulate parameters of other modulators
+	* 
+	* destination: bias, bidirectional
+	* 
 	* 
 	* envelopeFollowerModulator
 	*	if atk or rls cur smoothing: sample-based param-update	
@@ -770,6 +853,8 @@ namespace modSys2 {
 	*	free/sync >> sync playhead
 	*	how to handle dynamic param ranges (wtf did i mean with this)
 	* 
-	* add random lfo
+	* randomModulator
+	*	fix bias thing (bias should bias towards both ends, think of bidirectional)
+	*	just finish this thing (you can do this! :> let's go!)
 	*/
 }

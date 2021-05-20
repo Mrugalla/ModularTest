@@ -2,6 +2,7 @@
 #include "PluginEditor.h"
 #include <functional>
 #define ResetAPVTS false
+#define DebugRefCount false
 
 ModularTestAudioProcessor::ModularTestAudioProcessor()
 #ifndef JucePlugin_PreferredChannelConfigurations
@@ -15,7 +16,7 @@ ModularTestAudioProcessor::ModularTestAudioProcessor()
                        ),
     lfoFreeSyncRanges(),
     apvts(*this, nullptr, "Params", param::createParameters(apvts, lfoFreeSyncRanges)),
-    matrix(std::make_shared<modSys2::Matrix>(apvts))
+    matrix(apvts)
 #endif
 {
     matrix->addMacroModulator(param::getID(param::ID::Macro0));
@@ -37,13 +38,23 @@ ModularTestAudioProcessor::ModularTestAudioProcessor()
         lfoFreeSyncRanges,
         0
     );
-
     VectorAnything waveTableInfo;
     waveTableInfo.add<int>(512);
     waveTableInfo.add<std::function<float(float)>>([](float x) { return x; });
     waveTableInfo.add<std::function<float(float)>>([t = modSys2::tau](float x) { return .5f * std::sin(x * t) + .5f; });
     waveTableInfo.add<std::function<float(float)>>([](float x) { return x < .5f ? 0.f : 1.f; });
     lfoMod->addStuff("wavetables", waveTableInfo);
+
+    matrix->addRandomModulator(
+        param::getID(param::ID::RandSync),
+        param::getID(param::ID::RandRate),
+        param::getID(param::ID::RandBias),
+        lfoFreeSyncRanges,
+        0
+    );
+#if DebugRefCount
+    matrix.dbgReferenceCount("CONSTR");
+#endif
 }
 
 ModularTestAudioProcessor::~ModularTestAudioProcessor()
@@ -113,19 +124,28 @@ void ModularTestAudioProcessor::changeProgramName (int index, const juce::String
 }
 
 void ModularTestAudioProcessor::prepareToPlay(double sampleRate, int samplesPerBlock) {
-    auto mtrx = matrix.loadCurrentPtr();
-    mtrx->prepareToPlay(getChannelCountOfBus(false, 0), samplesPerBlock, sampleRate);
+#if DebugRefCount
+    matrix.dbgReferenceCount("PTP");
+#endif
+    auto m = matrix.getCopyOfUpdatedPtr();
+#if DebugRefCount
+    matrix.dbgReferenceCount("PTP AFTER COPY");
+#endif
+    m->prepareToPlay(getChannelCountOfBus(false, 0), samplesPerBlock, sampleRate);
 
     auto sec = (float)sampleRate;
-    mtrx->setSmoothingLengthInSamples(param::getID(param::ID::LFOSync), 0); // example for snappy param
-    mtrx->setSmoothingLengthInSamples(param::getID(param::ID::LFOWaveTable), 0);
-    mtrx->setSmoothingLengthInSamples(param::getID(param::ID::ModulesMix), sec / 8); // example for quick param
-    mtrx->setSmoothingLengthInSamples(param::getID(param::ID::Depth), sec); // example for slow param
-    mtrx->setSmoothingLengthInSamples(param::getID(param::ID::EnvFolAtk), sec / 64);
-    mtrx->setSmoothingLengthInSamples(param::getID(param::ID::EnvFolRls), sec / 64);
-    mtrx->setSmoothingLengthInSamples(param::getID(param::ID::EnvFolWdth), sec / 64);
+    m->setSmoothingLengthInSamples(param::getID(param::ID::LFOSync), 0); // example for snappy param
+    m->setSmoothingLengthInSamples(param::getID(param::ID::LFOWaveTable), 0);
+    m->setSmoothingLengthInSamples(param::getID(param::ID::ModulesMix), sec / 8); // example for quick param
+    m->setSmoothingLengthInSamples(param::getID(param::ID::Depth), sec); // example for slow param
+    m->setSmoothingLengthInSamples(param::getID(param::ID::EnvFolAtk), sec / 64);
+    m->setSmoothingLengthInSamples(param::getID(param::ID::EnvFolRls), sec / 64);
+    m->setSmoothingLengthInSamples(param::getID(param::ID::EnvFolWdth), sec / 64);
 
-    matrix.align();
+    matrix.replaceUpdatedPtrWith(m);
+#if DebugRefCount
+    matrix.dbgReferenceCount("PTP AFTER REPLACE");
+#endif
 }
 
 void ModularTestAudioProcessor::releaseResources()
@@ -170,6 +190,8 @@ void ModularTestAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, 
 
     auto mtrx = matrix.updateAndLoadCurrentPtr();
     mtrx->processBlock(buffer, getPlayHead());
+
+    //matrix.dbgReferenceCount("PB AFTER LOAD");
 }
 
 bool ModularTestAudioProcessor::hasEditor() const { return true; }
@@ -177,8 +199,10 @@ juce::AudioProcessorEditor* ModularTestAudioProcessor::createEditor() { return n
 
 void ModularTestAudioProcessor::getStateInformation (juce::MemoryBlock& destData) {
     // VALUETREE TO BINARY
-    auto mtrx = matrix.loadCurrentPtr();
-    mtrx->getState(apvts);
+    matrix->getState(apvts);
+#if DebugRefCount
+    matrix.dbgReferenceCount("GET STATE");
+#endif
 
 #if ResetAPVTS
     apvts.state.removeAllChildren(nullptr);
@@ -202,9 +226,18 @@ void ModularTestAudioProcessor::setStateInformation (const void* data, int sizeI
 #endif
 
     // BINARY TO VALUETREE
-    auto mtrx = matrix.copy();
-    mtrx->setState(apvts);
-    matrix.replaceUpdatedPtrWith(mtrx);
+#if DebugRefCount
+    matrix.dbgReferenceCount("SET STATE");
+#endif
+    auto m = matrix.getCopyOfUpdatedPtr();
+#if DebugRefCount
+    matrix.dbgReferenceCount("SET STATE AFTER COPY");
+#endif
+    m->setState(apvts);
+    matrix.replaceUpdatedPtrWith(m);
+#if DebugRefCount
+    matrix.dbgReferenceCount("SET STATE AFTER REPLACE");
+#endif
 }
 
 //==============================================================================

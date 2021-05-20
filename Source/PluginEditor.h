@@ -31,11 +31,13 @@ protected:
     modSys2Editor::ParameterExample lfoSyncP, lfoRateP, lfoWdthP, lfoWaveTableP;
     modSys2Editor::LFODisplay lfoDisplay;
 
+    modSys2Editor::ParameterExample randSyncP, randRateP, randBiasP;
+    modSys2Editor::LFODisplay randDisplay;
+
     juce::Label modulesLabel;
 
     modSys2Editor::ModulatorDragger macro0Dragger, macro1Dragger, macro2Dragger, macro3Dragger;
-    modSys2Editor::ModulatorDragger envFolDragger;
-    modSys2Editor::ModulatorDragger lfoDragger;
+    modSys2Editor::ModulatorDragger envFolDragger, lfoDragger, randDragger;
 
     void paint(juce::Graphics&) override;
     void resized() override;

@@ -26,7 +26,12 @@ ModularTestAudioProcessorEditor::ModularTestAudioProcessorEditor(ModularTestAudi
     lfoRateP(audioProcessor, param::getID(param::ID::LFORate), audioProcessor.getChannelCountOfBus(false, 0)),
     lfoWdthP(audioProcessor, param::getID(param::ID::LFOWdth), audioProcessor.getChannelCountOfBus(false, 0)),
     lfoWaveTableP(audioProcessor, param::getID(param::ID::LFOWaveTable), audioProcessor.getChannelCountOfBus(false, 0)),
-    lfoDisplay(0, audioProcessor.getChannelCountOfBus(false, 0)),
+    lfoDisplay(juce::String("LFO0"), audioProcessor.getChannelCountOfBus(false, 0)),
+
+    randSyncP(audioProcessor, param::getID(param::ID::RandSync), audioProcessor.getChannelCountOfBus(false, 0)),
+    randRateP(audioProcessor, param::getID(param::ID::RandRate), audioProcessor.getChannelCountOfBus(false, 0)),
+    randBiasP(audioProcessor, param::getID(param::ID::RandBias), audioProcessor.getChannelCountOfBus(false, 0)),
+    randDisplay(juce::String("Rand0"), audioProcessor.getChannelCountOfBus(false, 0)),
 
     modulesLabel("Modules", "Modules"),
 
@@ -34,8 +39,9 @@ ModularTestAudioProcessorEditor::ModularTestAudioProcessorEditor(ModularTestAudi
     macro1Dragger(audioProcessor, param::getID(param::ID::Macro1), { &depthP, &modulesMixP }),
     macro2Dragger(audioProcessor, param::getID(param::ID::Macro2), { &depthP, &modulesMixP }),
     macro3Dragger(audioProcessor, param::getID(param::ID::Macro3), { &depthP, &modulesMixP }),
-    envFolDragger(audioProcessor, juce::String("EnvFol" + 0), { &depthP, &modulesMixP }),
-    lfoDragger(audioProcessor, juce::String("Phase" + 0), { &depthP, &modulesMixP })
+    envFolDragger(audioProcessor, juce::String("EnvFol0"), { &depthP, &modulesMixP }),
+    lfoDragger(audioProcessor, juce::String("LFO0"), { &depthP, &modulesMixP }),
+    randDragger(audioProcessor, juce::String("Rand0"), { &depthP, &modulesMixP })
 {
     addAndMakeVisible(macrosLabel);
     macrosLabel.setJustificationType(juce::Justification::centred);
@@ -56,9 +62,14 @@ ModularTestAudioProcessorEditor::ModularTestAudioProcessorEditor(ModularTestAudi
     addAndMakeVisible(lfoWdthP); addAndMakeVisible(lfoWaveTableP);
     addAndMakeVisible(lfoDisplay);
 
+    addAndMakeVisible(randSyncP); addAndMakeVisible(randRateP);
+    addAndMakeVisible(randBiasP);
+    addAndMakeVisible(randDisplay);
+
     addAndMakeVisible(macro0Dragger); addAndMakeVisible(macro1Dragger);
     addAndMakeVisible(macro2Dragger); addAndMakeVisible(macro3Dragger);
     addAndMakeVisible(envFolDragger); addAndMakeVisible(lfoDragger);
+    addAndMakeVisible(randDragger);
 
     setOpaque(true);
     setResizable(true, true);
@@ -135,10 +146,24 @@ void ModularTestAudioProcessorEditor::resized() {
     lfoWdthP.setBounds(maxQuadIn(juce::Rectangle<float>(x, y, moduleObjWidth, moduleHeight)).toNearestInt());
     x += moduleObjWidth;
     lfoWaveTableP.setBounds(maxQuadIn(juce::Rectangle<float>(x, y, moduleObjWidth, moduleHeight)).toNearestInt());
+
+    x = modulesX;
+    y += moduleHeight;
+
+    randDragger.setQBounds(maxQuadIn(juce::Rectangle<float>(x, y, moduleObjWidth, moduleHeight)).toNearestInt());
+    x += moduleObjWidth;
+    randDisplay.setBounds(maxQuadIn(juce::Rectangle<float>(x, y, moduleObjWidth, moduleHeight)).toNearestInt());
+    x += moduleObjWidth;
+    randSyncP.setBounds(maxQuadIn(juce::Rectangle<float>(x, y, moduleObjWidth, moduleHeight)).toNearestInt());
+    x += moduleObjWidth;
+    randRateP.setBounds(maxQuadIn(juce::Rectangle<float>(x, y, moduleObjWidth, moduleHeight)).toNearestInt());
+    x += moduleObjWidth;
+    randBiasP.setBounds(maxQuadIn(juce::Rectangle<float>(x, y, moduleObjWidth, moduleHeight)).toNearestInt());
 }
 
 void ModularTestAudioProcessorEditor::timerCallback() {
-    const auto matrix = audioProcessor.matrix.loadCurrentPtr();
+    ///*
+    const auto matrix = audioProcessor.matrix.getUpdatedPtr();
     
     macro0P.timerCallback(matrix); macro1P.timerCallback(matrix);
     macro2P.timerCallback(matrix); macro3P.timerCallback(matrix);
@@ -154,4 +179,9 @@ void ModularTestAudioProcessorEditor::timerCallback() {
     lfoSyncP.timerCallback(matrix); lfoRateP.timerCallback(matrix);
     lfoWdthP.timerCallback(matrix); lfoWaveTableP.timerCallback(matrix);
     lfoDisplay.timerCallback(matrix); lfoDragger.timerCallback(matrix);
+
+    randSyncP.timerCallback(matrix); randRateP.timerCallback(matrix);
+    randBiasP.timerCallback(matrix);
+    randDisplay.timerCallback(matrix); randDragger.timerCallback(matrix);
+    //*/
 }
