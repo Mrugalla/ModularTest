@@ -2,6 +2,10 @@
 
 Welcome to my ModularTest Repository. This is where I test things for the custom modular system of my vst3 plugins.
 
+update 2021_05_28:
+
+fixed another little thread-safety issue. it was just one on the editor, though and this project is more about the backend. also i added more parameters to the envelope follower and the random modulator. now they are actually useful tbh. also i added some functionality for letting modulators modulate parameters of other modulators, but there are still some issues that i need to address.
+
 update 2021_05_17b:
 
 thread-safety & realtime-safety probably improved with spinLocks in ThreadSafeObject.
