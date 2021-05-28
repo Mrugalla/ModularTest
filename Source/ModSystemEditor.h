@@ -25,13 +25,16 @@ namespace modSys2Editor {
 
 			void paint(juce::Graphics& g) override {
 				g.setColour(juce::Colours::limegreen);
-				g.drawFittedText("M", getLocalBounds(), juce::Justification::centred, 1);
+				auto matrix = processor.matrix.getCopyOfUpdatedPtr();
+				const auto dest = matrix->getSelectedModulator()->getDestination(parameter.id);
+				const juce::String txt = dest->isBidirectional() ? "Mb" : "M";
+				g.drawFittedText(txt, getLocalBounds(), juce::Justification::centred, 1);
 				g.drawEllipse(getLocalBounds().toFloat(), 1);
 			}
-			void mouseDown(const juce::MouseEvent& evt) override {
+			void mouseDown(const juce::MouseEvent&) override {
 				auto matrix = processor.matrix.getUpdatedPtr();
-				const auto s = matrix->getSelectedModulator()->get();
-				auto atten = s->getAttenuvertor(parameter.id);
+				const auto slcm = matrix->getSelectedModulator();
+				auto atten = slcm->getAttenuvertor(parameter.id);
 				dragStartValue = atten;
 			}
 			void mouseDrag(const juce::MouseEvent& evt) override {
@@ -40,16 +43,20 @@ namespace modSys2Editor {
 				const auto v = -distance / static_cast<float>(getHeight());
 				const auto speed = evt.mods.isShiftDown() ? .01f : .1f;
 				const auto value = juce::jlimit(-1.f, 1.f, dragStartValue + v * speed);
-				auto s = matrix->getSelectedModulator()->get();
+				auto s = matrix->getSelectedModulator();
 				s->setAttenuvertor(matrix->getParameter(parameter.id)->get()->id, value);
 			}
 			void mouseUp(const juce::MouseEvent& evt) override {
 				if (evt.mouseWasDraggedSinceMouseDown()) return;
 				else if (evt.mods.isRightButtonDown()) {
 					auto matrix = processor.matrix.getCopyOfUpdatedPtr();
-					const auto m = matrix->getSelectedModulator()->get();
+					const auto m = matrix->getSelectedModulator();
 					matrix->removeDestination(m->id, parameter.id);
 					processor.matrix.replaceUpdatedPtrWith(matrix);
+				}
+				else {
+					auto dest = processor.matrix->getSelectedModulator()->getDestination(parameter.id);
+					dest->setBirectional(!dest->isBidirectional());
 				}
 			}
 
@@ -76,7 +83,7 @@ namespace modSys2Editor {
 			const auto selectedMod = matrix.get()->getSelectedModulator();
 			auto cmsv = value;
 			if (selectedMod != nullptr) {
-				auto sm = selectedMod->get();
+				auto sm = selectedMod;
 				if (sm->hasDestination(id)) {
 					modGainDragger.setVisible(true);
 					const auto atten = sm->getAttenuvertor(id);
@@ -155,9 +162,10 @@ namespace modSys2Editor {
 			g.drawVerticalLine(sumX, 0.f, height);
 			g.drawVerticalLine(sumX - 1, 0.f, height);
 			g.drawVerticalLine(sumX + 1, 0.f, height);
-			g.drawVerticalLine(x - 1, 0.f, height);
-			g.drawVerticalLine(x, 0.f, height);
-			g.drawVerticalLine(x + 1, 0.f, height);
+			const auto xInt = static_cast<int>(x);
+			g.drawVerticalLine(xInt - 1, 0.f, height);
+			g.drawVerticalLine(xInt, 0.f, height);
+			g.drawVerticalLine(xInt + 1, 0.f, height);
 
 			const auto numChannels = sumValue.size();
 			for (auto ch = 0; ch < numChannels; ++ch) {
@@ -252,7 +260,7 @@ namespace modSys2Editor {
 		void mouseUp(const juce::MouseEvent&) override {
 			if (hoveredParameter != nullptr) {
 				auto matrix = processor.matrix.getCopyOfUpdatedPtr();
-				const auto& m = matrix->getModulator(id)->get();
+				const auto m = matrix->getModulator(id);
 				const auto& p = matrix->getParameter(hoveredParameter->id)->get();
 				const auto pValue = processor.apvts.getRawParameterValue(p->id);
 				const auto atten = 1.f - *pValue;
@@ -272,14 +280,14 @@ namespace modSys2Editor {
 			else
 				g.setColour(juce::Colours::blue.brighter(.4f));
 			
-			const auto bounds = getLocalBounds().toFloat();
-			g.drawRoundedRectangle(bounds, 2, 2);
-			juce::Point<float> centre(bounds.getX() + bounds.getWidth() * .5f, bounds.getY() + bounds.getHeight() * .5f);
-			const auto arrowHead = bounds.getWidth() * .25f;
-			g.drawArrow(juce::Line<float>(centre, { centre.x, bounds.getBottom() }), 2, arrowHead, arrowHead);
-			g.drawArrow(juce::Line<float>(centre, { bounds.getX(), centre.y }), 2, arrowHead, arrowHead);
-			g.drawArrow(juce::Line<float>(centre, { centre.x, bounds.getY() }), 2, arrowHead, arrowHead);
-			g.drawArrow(juce::Line<float>(centre, { bounds.getRight(), centre.y }), 2, arrowHead, arrowHead);
+			const auto tBounds = getLocalBounds().toFloat();
+			g.drawRoundedRectangle(tBounds, 2, 2);
+			juce::Point<float> centre(tBounds.getX() + tBounds.getWidth() * .5f, tBounds.getY() + tBounds.getHeight() * .5f);
+			const auto arrowHead = tBounds.getWidth() * .25f;
+			g.drawArrow(juce::Line<float>(centre, { centre.x, tBounds.getBottom() }), 2, arrowHead, arrowHead);
+			g.drawArrow(juce::Line<float>(centre, { tBounds.getX(), centre.y }), 2, arrowHead, arrowHead);
+			g.drawArrow(juce::Line<float>(centre, { centre.x, tBounds.getY() }), 2, arrowHead, arrowHead);
+			g.drawArrow(juce::Line<float>(centre, { tBounds.getRight(), centre.y }), 2, arrowHead, arrowHead);
 		}
 
 		Parameter* getHoveredParameter() const {
@@ -302,11 +310,11 @@ namespace modSys2Editor {
 		EnvelopeFollowerDisplay(int envFolIdx, const int numChannels) :
 			juce::Component(),
 			modSys2::Identifiable(juce::String("EnvFol" + juce::String(envFolIdx))),
-			curValue(0.f)
-		{ curValue.resize(numChannels); }
+			curValue()
+		{ curValue.resize(numChannels, 0.f); }
 		void timerCallback(const std::shared_ptr<modSys2::Matrix>& matrix) {
 			bool needRepaint = false;
-			const auto mod = matrix->getModulator(id)->get();
+			const auto mod = matrix->getModulator(id);
 			for (auto ch = 0; ch < curValue.size(); ++ch) {
 				const auto newValue = mod->getOutValue(ch);
 				if (curValue[ch] != newValue) {
@@ -345,13 +353,13 @@ namespace modSys2Editor {
 			juce::Component(),
 			modSys2::Identifiable(mID),
 			img(juce::Image::RGB, 1, 1, true),
-			curValue(0.f)
-		{ curValue.resize(numChannels); }
+			curValue()
+		{ curValue.resize(numChannels, 0.f); }
 		void timerCallback(const std::shared_ptr<modSys2::Matrix>& matrix) {
 			bool needRepaint = false;
 			for (auto ch = 0; ch < curValue.size(); ++ch) {
 				const auto mod = matrix->getModulator(id);
-				auto newValue = mod->get()->getOutValue(ch);
+				auto newValue = mod->getOutValue(ch);
 				if (curValue[ch] != newValue) {
 					curValue[ch] = newValue;
 					needRepaint = true;

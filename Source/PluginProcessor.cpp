@@ -25,8 +25,10 @@ ModularTestAudioProcessor::ModularTestAudioProcessor()
     matrix->addMacroModulator(param::getID(param::ID::Macro3));
 
     matrix->addEnvelopeFollowerModulator(
+        param::getID(param::ID::EnvFolGain),
         param::getID(param::ID::EnvFolAtk),
         param::getID(param::ID::EnvFolRls),
+        param::getID(param::ID::EnvFolBias),
         param::getID(param::ID::EnvFolWdth),
         0
     );
@@ -49,6 +51,8 @@ ModularTestAudioProcessor::ModularTestAudioProcessor()
         param::getID(param::ID::RandSync),
         param::getID(param::ID::RandRate),
         param::getID(param::ID::RandBias),
+        param::getID(param::ID::RandWdth),
+        param::getID(param::ID::RandSmooth),
         lfoFreeSyncRanges,
         0
     );
@@ -110,16 +114,16 @@ int ModularTestAudioProcessor::getCurrentProgram()
     return 0;
 }
 
-void ModularTestAudioProcessor::setCurrentProgram (int index)
+void ModularTestAudioProcessor::setCurrentProgram (int)
 {
 }
 
-const juce::String ModularTestAudioProcessor::getProgramName (int index)
+const juce::String ModularTestAudioProcessor::getProgramName (int)
 {
     return {};
 }
 
-void ModularTestAudioProcessor::changeProgramName (int index, const juce::String& newName)
+void ModularTestAudioProcessor::changeProgramName (int, const juce::String&)
 {
 }
 
@@ -180,7 +184,7 @@ bool ModularTestAudioProcessor::isBusesLayoutSupported (const BusesLayout& layou
 }
 #endif
 
-void ModularTestAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer& midiMessages) {
+void ModularTestAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer&) {
     if (buffer.getNumSamples() == 0) return;
     juce::ScopedNoDenormals noDenormals;
     auto totalNumInputChannels  = getTotalNumInputChannels();
@@ -190,8 +194,6 @@ void ModularTestAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, 
 
     auto mtrx = matrix.updateAndLoadCurrentPtr();
     mtrx->processBlock(buffer, getPlayHead());
-
-    //matrix.dbgReferenceCount("PB AFTER LOAD");
 }
 
 bool ModularTestAudioProcessor::hasEditor() const { return true; }

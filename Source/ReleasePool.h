@@ -128,7 +128,3 @@ protected:
     std::shared_ptr<Type> updatedPtr;
     juce::SpinLock spinLock;
 };
-
-/* to do:
-* check if everything really works again i guess
-*/

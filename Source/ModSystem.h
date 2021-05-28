@@ -7,7 +7,18 @@
 namespace modSys2 {
 	static constexpr float pi = 3.14159265359f;
 	static constexpr float tau = 6.28318530718f;
-	static float msInSamples(float ms, float Fs) { return ms * Fs * .001f; }
+	static float msInSamples(float ms, float Fs) noexcept { return ms * Fs * .001f; }
+	static float hzInSamples(float hz, float Fs) noexcept { return Fs / hz; }
+	static float hzInSlewRate(float hz, float Fs) noexcept { return 1.f / hzInSamples(hz, Fs); }
+	static float dbInGain(float db) noexcept { return std::pow(10.f, db * .05f); }
+	static float gainInDb(float gain) noexcept { return 20.f * std::log10(gain); }
+	/* values and bias are normalized [0,1] lin curve at around bias = .6 for some reason */
+	static float weight(float value, float bias) noexcept {
+		if (value == 0.f) return 0.f;
+		const float b0 = std::pow(value, bias);
+		const float b1 = std::pow(value, 1 / bias);
+		return b1 / b0;
+	}
 	static juce::AudioPlayHead::CurrentPositionInfo getDefaultPlayHead() {
 		juce::AudioPlayHead::CurrentPositionInfo cpi;
 		cpi.bpm = 120;
@@ -181,7 +192,7 @@ namespace modSys2 {
 		void setSmoothingLengthInSamples(const float length) noexcept { smoothing.setLength(length); }
 		// PROCESS
 		void processBlock(const int numSamples) noexcept {
-			const int numChannels = block.numChannels();
+			const auto numChannels = block.numChannels();
 			const auto nextValue = rap.convertTo0to1(parameter->load());
 			smoothing.processBlock(block, nextValue, numSamples, 0);
 			for (auto ch = 1; ch < numChannels; ++ch)
@@ -192,15 +203,15 @@ namespace modSys2 {
 			for (auto ch = 0; ch < numChannels; ++ch)
 				sumValue[ch]->store(block(ch, lastSample));
 		}
-		float& operator()(const int ch, const int s) { return block(ch, s); }
+		void set(const float value, const int ch, const int s) noexcept { block(ch, s) = value; }
 		void limit(const int numSamples) noexcept { block.limit(numSamples); }
 		// GET NORMAL
 		float getSumValue(const int ch) const { return sumValue[ch]->load(); }
-		const float& operator()(const int ch, const int s) const noexcept { return block(ch, s); }
+		float get(const int ch, const int s) const noexcept { return block(ch, s); }
 		Vec2D<float>& data() noexcept { return block.data(); }
 		const Vec2D<float>& data() const noexcept { return block.data(); }
 		// GET CONVERTED
-		const float denormalized(const int ch, const int s) const noexcept { return rap.convertFrom0to1(block(ch, s)); }
+		const float denormalized(const int ch, const int s) const noexcept { return rap.convertFrom0to1(juce::jlimit(0.f ,1.f, block(ch, s))); }
 	protected:
 		std::atomic<float>* parameter;
 		const juce::RangedAudioParameter& rap;
@@ -216,22 +227,37 @@ namespace modSys2 {
 	struct Destination :
 		public Identifiable
 	{
-		Destination(const juce::Identifier& dID, Vec2D<float>& destB, float defaultAtten = 1.f) :
+		Destination(const juce::Identifier& dID, Vec2D<float>* destB, float defaultAtten = 1.f, bool defaultBidirectional = false) :
 			Identifiable(dID),
 			destBlock(destB),
-			attenuvertor(defaultAtten)
+			attenuvertor(defaultAtten),
+			bidirectional(defaultBidirectional)
+		{}
+		Destination(Destination& d) :
+			Identifiable(d.id),
+			destBlock(d.destBlock),
+			attenuvertor(d.getValue()),
+			bidirectional(d.isBidirectional())
 		{}
 		void processBlock(const Block& block, const int numChannels, const int numSamples) noexcept {
-			const auto g = attenuvertor.load();
-			for (auto ch = 0; ch < numChannels; ++ch)
-				for (auto s = 0; s < numSamples; ++s)
-					destBlock(ch, s) += block(ch, s) * g;
+			const auto g = getValue();
+			if(isBidirectional())
+				for (auto ch = 0; ch < numChannels; ++ch)
+					for (auto s = 0; s < numSamples; ++s)
+						destBlock->operator()(ch, s) += 2.f * (block(ch, s) - .5f) * g;
+			else
+				for (auto ch = 0; ch < numChannels; ++ch)
+					for (auto s = 0; s < numSamples; ++s)
+						destBlock->operator()(ch, s) += block(ch, s) * g;
 		}
-		void setValue(float value) noexcept { attenuvertor.store(value); }
-		const float getValue() const noexcept { return attenuvertor.load(); }
+		void setValue(float value) noexcept { attenuvertor.set(value); }
+		float getValue() const noexcept { return attenuvertor.get(); }
+		void setBirectional(bool b) noexcept { bidirectional.set(b); }
+		bool isBidirectional() const noexcept { return bidirectional.get(); }
 	protected:
-		Vec2D<float>& destBlock;
-		std::atomic<float> attenuvertor;
+		Vec2D<float>* destBlock;
+		juce::Atomic<float> attenuvertor;
+		juce::Atomic<bool> bidirectional;
 	};
 
 	/*
@@ -242,81 +268,100 @@ namespace modSys2 {
 	{
 		Modulator(const juce::Identifier& mID) :
 			Identifiable(mID),
+			params(),
+			destinations(),
 			outValue(),
-			destinations()
+			Fs(1)
 		{}
 		Modulator(const juce::String& mID) :
 			Identifiable(mID),
+			params(),
+			destinations(),
 			outValue(),
-			destinations()
+			Fs(1)
 		{}
 		// SET
 		virtual void prepareToPlay(const int numChannels, const double sampleRate) {
 			if (outValue.size() != numChannels) {
 				outValue.clear();
 				for (auto c = 0; c < numChannels; ++c)
-					outValue.push_back(std::make_shared<std::atomic<float>>(0.f));
+					outValue.push_back(juce::Atomic<float>(0.f));
 			}
 			Fs = static_cast<float>(sampleRate);
 		}
-		void addDestination(const juce::Identifier& dID, Vec2D<float>& destB, float atten = 1.f) {
+		void addDestination(const juce::Identifier& dID, Vec2D<float>& destB, float atten = 1.f, bool bidirec = false) {
 			if (hasDestination(dID)) return;
-			destinations.push_back(std::make_shared<Destination>(
-				dID, destB, atten
-				));
+			destinations.push_back({dID, &destB, atten, bidirec});
 		}
 		void removeDestination(const juce::Identifier& dID) {
 			for (auto d = 0; d < destinations.size(); ++d) {
-				auto& destination = destinations[d];
-				auto dest = destination.get();
-				if (dest->id == dID) {
+				auto& dest = destinations[d];
+				if (dest == dID) {
 					destinations.erase(destinations.begin() + d);
 					return;
 				}
 			}
 		}
-		virtual void addStuff(const juce::String& sID, const VectorAnything& stuff) {}
+		void removeDestinations(const Modulator* other) {
+			const auto& otherParams = other->getParameters();
+			for (const auto op : otherParams)
+				if (hasDestination(op->id))
+					removeDestination(op->id);
+		}
+		virtual void addStuff(const juce::String& /*sID*/, const VectorAnything& /*stuff*/) {}
 		// PROCESS
 		void setAttenuvertor(const juce::Identifier& pID, const float value) {
-			auto d = getDestination(pID);
-			return d->get()->setValue(value);
+			getDestination(pID)->setValue(value);
 		}
 		virtual void processBlock(const juce::AudioBuffer<float>& audioBuffer, Block& block, juce::AudioPlayHead::CurrentPositionInfo& playHead) = 0;
 		void processDestinations(Block& block, const int numChannels, const int numSamples) noexcept {
 			for (auto& destination : destinations)
-				destination.get()->processBlock(block, numChannels, numSamples);
-		}
-		void storeOutValue(const float lastSampleValue, const int ch) {
-			outValue[ch]->store(lastSampleValue);
+				destination.processBlock(block, numChannels, numSamples);
 		}
 		void storeOutValue(Block& block, const int lastSample) {
 			for(auto ch = 0; ch < outValue.size(); ++ch)
-				outValue[ch]->store(block(ch, lastSample));
+				outValue[ch].set(block(ch, lastSample));
 		}
 		// GET
 		bool hasDestination(const juce::Identifier& pID) const noexcept {
-			const auto d = getDestination(pID);
-			return d != nullptr;
+			return getDestination(pID) != nullptr;
 		}
-		const std::shared_ptr<Destination>* getDestination(const juce::Identifier& pID) const noexcept {
-			for (auto& destination : destinations) {
-				auto d = destination.get();
-				if (d->id == pID)
-					return &destination;
-			}
+		Destination* getDestination(const juce::Identifier& pID) noexcept {
+			for (auto d = 0; d < destinations.size(); ++d)
+				if (destinations[d] == pID)
+					return &destinations[d];
+			return nullptr;
+		}
+		const Destination* getDestination(const juce::Identifier& pID) const noexcept {
+			for (auto d = 0; d < destinations.size(); ++d)
+				if (destinations[d] == pID)
+					return &destinations[d];
 			return nullptr;
 		}
 		const float getAttenuvertor(const juce::Identifier& pID) const noexcept {
-			auto d = getDestination(pID);
-			return d->get()->getValue();
+			return getDestination(pID)->getValue();
 		}
-		const std::vector<std::shared_ptr<Destination>>& getDestinations() const noexcept {
+		const std::vector<Destination>& getDestinations() const noexcept {
 			return destinations;
 		}
-		const float getOutValue(const int ch) const noexcept { return outValue[ch]->load(); }
+		float getOutValue(const int ch) const noexcept { return outValue[ch].get(); }
+		const std::vector<const Parameter*>& getParameters() const noexcept { return params; }
+		bool usesParameter(const juce::Identifier& pID) const noexcept {
+			for (const auto p : params)
+				if (p->id == pID)
+					return true;
+			return false;
+		}
+		bool modulates(Modulator& other) const noexcept {
+			for (const auto p : params)
+				if (other.hasDestination(p->id))
+					return true;
+			return false;
+		}
 	protected:
-		std::vector<std::shared_ptr<Destination>> destinations;
-		std::vector<std::shared_ptr<std::atomic<float>>> outValue;
+		std::vector<const Parameter*> params;
+		std::vector<Destination> destinations;
+		std::vector<juce::Atomic<float>> outValue;
 		float Fs;
 	};
 
@@ -326,33 +371,37 @@ namespace modSys2 {
 	struct MacroModulator :
 		public Modulator
 	{
-		MacroModulator(const Parameter& param) :
-			Modulator(param.id),
-			parameter(param)
-		{}
+		MacroModulator(const Parameter* makroParam) :
+			Modulator(makroParam->id)
+		{ params.push_back(makroParam); }
 		void processBlock(const juce::AudioBuffer<float>& audioBuffer, Block& block, juce::AudioPlayHead::CurrentPositionInfo&) override {
 			for (auto ch = 0; ch < audioBuffer.getNumChannels(); ++ch)
 				for (auto s = 0; s < audioBuffer.getNumSamples(); ++s)
-					block(ch, s) = parameter(ch, s);
+					block(ch, s) = params[0]->get(ch, s);
+			const auto lastSample = audioBuffer.getNumSamples() - 1;
+			storeOutValue(block, lastSample);
 		}
-	protected:
-		const Parameter& parameter;
 	};
 
 	/*
 	* an envelope follower modulator
 	*/
-	struct EnvelopeFollowerModulator :
+	class EnvelopeFollowerModulator :
 		public Modulator
 	{
-		EnvelopeFollowerModulator(const juce::String& mID, const Parameter& atkParam,
-			const Parameter& rlsParam, const Parameter& widthParam) :
+		enum { Gain, Attack, Release, Bias, Width };
+	public:
+		EnvelopeFollowerModulator(const juce::String& mID, const Parameter* inputGain, const Parameter* atkParam,
+			const Parameter* rlsParam, const Parameter* biasParam, const Parameter* widthParam) :
 			Modulator(mID),
-			attackParameter(atkParam),
-			releaseParameter(rlsParam),
-			widthParameter(widthParam),
 			env()
-		{}
+		{
+			params.push_back(inputGain);
+			params.push_back(atkParam);
+			params.push_back(rlsParam);
+			params.push_back(biasParam);
+			params.push_back(widthParam);
+		}
 		// SET
 		void prepareToPlay(const int numChannels, const double sampleRate) override {
 			Modulator::prepareToPlay(numChannels, sampleRate);
@@ -365,8 +414,9 @@ namespace modSys2 {
 			const auto lastSample = numSamples - 1;
 			getSamples(audioBuffer, block);
 			for (auto ch = 0; ch < audioBuffer.getNumChannels(); ++ch) {
-				const auto atkInMs = attackParameter.denormalized(ch, lastSample);
-				const auto rlsInMs = releaseParameter.denormalized(ch, lastSample);
+				const auto atkInMs = params[Attack]->denormalized(ch, 0);
+				const auto rlsInMs = params[Release]->denormalized(ch, 0);
+				const auto bias = 1.f - juce::jlimit(0.f ,1.f, params[Bias]->get(ch, 0));
 				const auto atkInSamples = msInSamples(atkInMs, Fs);
 				const auto rlsInSamples = msInSamples(rlsInMs, Fs);
 				const auto atkSpeed = 1.f / atkInSamples;
@@ -378,36 +428,31 @@ namespace modSys2 {
 					else if (env[ch] > block(ch, s))
 						env[ch] += rlsSpeed * (block(ch, s) - env[ch]);
 					block(ch, s) = env[ch] * gain;
+					block(ch, s) = processBias(block(ch, s), bias);
 				}
 			}
-			processWidth(block, numChannels, numSamples, lastSample);
-			for (auto ch = 1; ch < numChannels; ++ch)
-				storeOutValue(block(ch, lastSample), ch);
+			processWidth(block, numChannels, numSamples);
+			storeOutValue(block, lastSample);
 		}
 	protected:
-		const Parameter& attackParameter;
-		const Parameter& releaseParameter;
-		const Parameter& widthParameter;
 		std::vector<float> env;
 	private:
 		inline void getSamples(const juce::AudioBuffer<float>& audioBuffer, Block& block) {
 			const auto samples = audioBuffer.getArrayOfReadPointers();
 			for (auto ch = 0; ch < audioBuffer.getNumChannels(); ++ch)
 				for (auto s = 0; s < audioBuffer.getNumSamples(); ++s)
-					block(ch, s) = std::abs(samples[ch][s]);
+					block(ch, s) = std::abs(samples[ch][s]) * dbInGain(params[Gain]->denormalized(ch, s));
 		}
 
-		const float makeAutoGain(const float atkSpeed, const float rlsSpeed) noexcept {
+		const inline float makeAutoGain(const float atkSpeed, const float rlsSpeed) const noexcept {
 			return 1.f + std::sqrt(rlsSpeed / atkSpeed);
 		}
+		const inline float processBias(const float value, const float biasV) const noexcept { return std::pow(value, biasV); }
 
-		inline void processWidth(Block& block, const int numChannels, const int numSamples, const int lastSample) {
-			const auto lastSampleValue = block(0, lastSample);
-			storeOutValue(lastSampleValue, 0);
-			const auto width = widthParameter(0, lastSample);
+		inline void processWidth(Block& block, const int numChannels, const int numSamples) noexcept {
 			for (auto ch = 1; ch < numChannels; ++ch)
 				for (auto s = 0; s < numSamples; ++s)
-					block(ch, s) = block(0, s) + width * (block(ch, s) - block(0, s));
+					block(ch, s) = block(0, s) + params[Width]->get(ch, s) * (block(ch, s) - block(0, s));
 		}
 	};
 
@@ -417,6 +462,7 @@ namespace modSys2 {
 	class LFOModulator :
 		public Modulator
 	{
+		enum { Sync, Rate, Width, WaveTable };
 		class WaveTables {
 			enum { TableIdx, SampleIdx };
 		public:
@@ -445,20 +491,21 @@ namespace modSys2 {
 			int tableSize;
 		};
 	public:
-		LFOModulator(const juce::String& mID, const Parameter& syncParam, const Parameter& rateParam,
-			const Parameter& wdthParam, const Parameter& waveTableParam, const param::MultiRange& ranges) :
+		LFOModulator(const juce::String& mID, const Parameter* syncParam, const Parameter* rateParam,
+			const Parameter* wdthParam, const Parameter* waveTableParam, const param::MultiRange& ranges) :
 			Modulator(mID),
-			syncParameter(syncParam),
-			rateParameter(rateParam),
-			widthParameter(wdthParam),
-			waveTableParameter(waveTableParam),
 			multiRange(ranges),
 			freeID(multiRange.getID("free")),
 			syncID(multiRange.getID("sync")),
 			phase(),
 			waveTables(),
 			fsInv(0.f)
-		{}
+		{
+			params.push_back(syncParam);
+			params.push_back(rateParam);
+			params.push_back(wdthParam);
+			params.push_back(waveTableParam);
+		}
 		// SET
 		void prepareToPlay(const int numChannels, const double sampleRate) override {
 			Modulator::prepareToPlay(numChannels, sampleRate);
@@ -467,7 +514,7 @@ namespace modSys2 {
 		}
 		void addStuff(const juce::String& sID, const VectorAnything& stuff) override {
 			if (sID == "wavetables") {
-				const auto tablesCount = stuff.size() - 1;
+				const auto tablesCount = static_cast<int>(stuff.size()) - 1;
 				const auto tableSize = stuff.get<int>(0);
 				waveTables.resize(tablesCount, *tableSize);
 				for (auto i = 1; i < stuff.size(); ++i) {
@@ -481,11 +528,11 @@ namespace modSys2 {
 			const auto numChannels = audioBuffer.getNumChannels();
 			const auto numSamples = audioBuffer.getNumSamples();
 			const auto lastSample = numSamples - 1;
-			const bool isFree = syncParameter(0, 0) < .5f;
+			const bool isFree = params[Sync]->get(0, 0) < .5f;
 
 			if (isFree)
 				for (auto ch = 0; ch < numChannels; ++ch) {
-					const auto rateValue = rateParameter(ch, lastSample);
+					const auto rateValue = juce::jlimit(0.f, 1.f, params[Rate]->get(ch, lastSample));
 					const auto rate = multiRange(freeID).convertFrom0to1(rateValue);
 					const auto inc = rate * fsInv;
 					processPhase(block, inc, ch, numSamples);
@@ -497,7 +544,7 @@ namespace modSys2 {
 				const auto barLengthInSamples = quarterNoteLengthInSamples * 4.;
 				const auto ppq = playHead.ppqPosition * .25;
 				for (auto ch = 0; ch < numChannels; ++ch) {
-					const auto rateValue = rateParameter(ch, lastSample);
+					const auto rateValue = juce::jlimit(0.f, 1.f, params[Rate]->get(ch, lastSample));
 					const auto rate = multiRange(syncID).convertFrom0to1(rateValue);
 					const auto inc = 1.f / (static_cast<float>(barLengthInSamples) * rate);
 					const auto ppqCh = static_cast<float>(ppq) / rate;
@@ -508,14 +555,9 @@ namespace modSys2 {
 			}
 			processWidth(block, lastSample, numChannels, numSamples);
 			processWaveTable(block, numChannels, numSamples);
-			for (auto ch = 0; ch < numChannels; ++ch)
-				storeOutValue(block(ch, lastSample), ch);
+			storeOutValue(block, lastSample);
 		}
 	protected:
-		const Parameter& syncParameter;
-		const Parameter& rateParameter;
-		const Parameter& widthParameter;
-		const Parameter& waveTableParameter;
 		const param::MultiRange& multiRange;
 		const juce::Identifier& freeID, syncID;
 		std::vector<float> phase;
@@ -523,7 +565,7 @@ namespace modSys2 {
 		float fsInv;
 
 		inline void processWidth(Block& block, const int lastSample, const int numChannels, const int numSamples) {
-			const auto width = widthParameter.denormalized(0, lastSample) * .5f;
+			const auto width = params[Width]->denormalized(0, lastSample) * .5f;
 			if (width > 0.f)
 				for (auto ch = 1; ch < numChannels; ++ch)
 					for (auto s = 0; s < numSamples; ++s) {
@@ -552,33 +594,80 @@ namespace modSys2 {
 		}
 
 		void processWaveTable(Block& block, const int numChannels, const int numSamples) {
-			for (auto ch = 0; ch < numChannels; ++ch)
+			for (auto ch = 0; ch < numChannels; ++ch) {
+				const auto wtValue = static_cast<int>(params[WaveTable]->denormalized(ch, 0));
 				for (auto s = 0; s < numSamples; ++s)
-					block(ch, s) = waveTables(block(ch, s), static_cast<int>(waveTableParameter.denormalized(ch, s)));
+					block(ch, s) = waveTables(block(ch, s), wtValue);
+			}
 		}
 	};
 
 	/*
 	* a random modulator
 	*/
-	struct RandomModulator :
+	class RandomModulator :
 		public Modulator
 	{
-		RandomModulator(const juce::String& mID, const Parameter& syncParam, const Parameter& rateParam, const Parameter& biasParam, const param::MultiRange& ranges) :
+		enum { Sync, Rate, Bias, Width, Smooth };
+		struct LP1Pole {
+			LP1Pole() :
+				env(0.f),
+				cutoff(.0001f)
+			{}
+			void processBlock(float* block, const int numSamples) noexcept {
+				for (auto s = 0; s < numSamples; ++s)
+					block[s] = process(block[s]);
+			}
+			const float process(const float sample) noexcept {
+				env += cutoff * (sample - env);
+				return env;
+			}
+			float env, cutoff;
+		};
+		struct LP1PoleOrder {
+			LP1PoleOrder(int order) :
+				filters()
+			{ filters.resize(order); }
+			void setCutoff(float amount, float rateInSlew) {
+				const auto cutoff = 1.f + amount * (rateInSlew - 1.f);
+				for (auto& f : filters)
+					f.cutoff = cutoff;
+			}
+			void processBlock(float* block, const int numSamples) noexcept {
+				for (auto f = 0; f < filters.size(); ++f)
+					filters[f].processBlock(block, numSamples);
+			}
+			const float process(float sample) noexcept {
+				for (auto& f : filters)
+					sample = f.process(sample);
+				return sample;
+			}
+			std::vector<LP1Pole> filters;
+		};
+	public:
+		RandomModulator(const juce::String& mID, const Parameter* syncParam, const Parameter* rateParam,
+			const Parameter* biasParam, const Parameter* widthParam, const Parameter* smoothParam,
+			const param::MultiRange& ranges) :
 			Modulator(mID),
-			syncParameter(syncParam),
-			rateParameter(rateParam),
-			biasParameter(biasParam),
 			multiRange(ranges),
 			freeID(multiRange.getID("free")),
 			syncID(multiRange.getID("sync")),
 			phase(), randValue(),
+			smoothing(),
 			rand(juce::Time::currentTimeMillis()),
-			fsInv(1)
-		{}
+			fsInv(1), rateInHz(1)
+		{
+			params.push_back(syncParam);
+			params.push_back(rateParam);
+			params.push_back(biasParam);
+			params.push_back(widthParam);
+			params.push_back(smoothParam);
+		}
 		// SET
 		void prepareToPlay(const int numChannels, const double sampleRate) override {
 			Modulator::prepareToPlay(numChannels, sampleRate);
+			const auto filterOrder = 3;
+			smoothing.resize(numChannels, filterOrder);
 			phase.resize(numChannels, 0);
 			randValue.resize(numChannels, 0);
 			fsInv = 1.f / Fs;
@@ -587,28 +676,27 @@ namespace modSys2 {
 			const auto numChannels = audioBuffer.getNumChannels();
 			const auto numSamples = audioBuffer.getNumSamples();
 			synthesizeRandomSignal(block, playHead, numChannels, numSamples);
-
+			processWidth(block, numChannels, numSamples);
+			processSmoothing(block, numChannels, numSamples);
 			storeOutValue(block, numSamples - 1);
 		}
 	protected:
-		const Parameter& syncParameter;
-		const Parameter& rateParameter;
-		const Parameter& biasParameter;
 		const param::MultiRange& multiRange;
 		const juce::Identifier& freeID, syncID;
 		std::vector<float> phase, randValue;
+		std::vector<LP1PoleOrder> smoothing;
 		juce::Random rand;
-		float fsInv;
+		float fsInv, rateInHz;
 	private:
 		void synthesizeRandomSignal(Block& block, juce::AudioPlayHead::CurrentPositionInfo& playHead, const int numChannels, const int numSamples) {
 			const auto lastSample = numSamples - 1;
-			const bool isFree = syncParameter(0, 0) < .5f;
+			const bool isFree = params[Sync]->get(0, 0) < .5f;
 
 			if (isFree)
 				for (auto ch = 0; ch < numChannels; ++ch) {
-					const auto rateValue = rateParameter(ch, lastSample);
-					const auto rate = multiRange(freeID).convertFrom0to1(rateValue);
-					const auto inc = rate * fsInv;
+					const auto rateValue = juce::jlimit(0.f ,1.f , params[Rate]->get(ch, lastSample));
+					rateInHz = multiRange(freeID).convertFrom0to1(rateValue);
+					const auto inc = rateInHz * fsInv;
 					synthesizeRandomSignal(block, phase[ch], inc, numSamples, ch);
 				}
 			else {
@@ -618,10 +706,10 @@ namespace modSys2 {
 				const auto barLengthInSamples = quarterNoteLengthInSamples * 4.;
 				const auto ppq = playHead.ppqPosition * .25;
 				for (auto ch = 0; ch < numChannels; ++ch) {
-					const auto rateValue = rateParameter(ch, lastSample);
-					const auto rate = multiRange(syncID).convertFrom0to1(rateValue);
-					const auto inc = 1.f / (static_cast<float>(barLengthInSamples) * rate);
-					const auto ppqCh = static_cast<float>(ppq) / rate;
+					const auto rateValue = juce::jlimit(0.f, 1.f, params[Rate]->get(ch, lastSample));
+					rateInHz = multiRange(syncID).convertFrom0to1(rateValue);
+					const auto inc = 1.f / (static_cast<float>(barLengthInSamples) * rateInHz);
+					const auto ppqCh = static_cast<float>(ppq) / rateInHz;
 					auto newPhase = (ppqCh - std::floor(ppqCh));
 					phase[ch] = newPhase;
 					synthesizeRandomSignal(block, newPhase, inc, numSamples, ch);
@@ -639,11 +727,30 @@ namespace modSys2 {
 				block(ch, s) = randValue[ch];
 			}
 		}
-		const float getBiasedValue(float value, const int ch, const int s) const noexcept {
-			const auto biasValue = biasParameter(ch, s);
-			return biasValue < .5f ?
-				std::pow(value, 2 * biasValue) :
-				std::pow(value, 1.f / (1.f - 2.f * (biasValue - .5f)));
+		void processWidth(Block& block, const int numChannels, const int numSamples) noexcept {
+			for (auto ch = 1; ch < numChannels; ++ch) {
+				const auto narrowness = (1.f - juce::jlimit(0.f, 1.f, params[Width]->get(ch, 0)));
+				for (auto s = 0; s < numSamples; ++s)
+					block(ch, s) += narrowness * (block(0, s) - block(ch, s));
+			}
+		}
+		void processSmoothing(Block& block, const int numChannels, const int numSamples) {
+			const auto rateInSlew = hzInSlewRate(rateInHz, Fs);
+			for (auto ch = 0; ch < numChannels; ++ch) {
+				const auto magicNumber = .9998f;
+				const auto smoothValue = weight(params[Smooth]->get(ch, 0), magicNumber);
+				smoothing[ch].setCutoff(smoothValue, rateInSlew);
+				smoothing[ch].processBlock(&block(ch, 0), numSamples);
+			}	
+		}
+		const float getBiasedValue(float value, const int ch, const int s) noexcept {
+			const auto bias = params[Bias]->get(ch, s);
+			if (bias < .5f) {
+				const auto a = bias * 2.f;
+				return std::atan(std::tan(value * pi - .5f * pi) * a) / pi + .5f;
+			}
+			const auto a = 1.f - (2.f * bias - 1.f);
+			return std::atan(std::tan(value * pi - .5f * pi) / a) / pi + .5f;
 		}
 	};
 
@@ -657,6 +764,7 @@ namespace modSys2 {
 			destination("DEST"),
 			id("id"),
 			atten("atten"),
+			bidirec("bidirec"),
 			param("PARAM")
 		{}
 		const juce::Identifier modSys;
@@ -664,6 +772,7 @@ namespace modSys2 {
 		const juce::Identifier destination;
 		const juce::Identifier id;
 		const juce::Identifier atten;
+		const juce::Identifier bidirec;
 		const juce::Identifier param;
 	};
 	/*
@@ -703,7 +812,7 @@ namespace modSys2 {
 			for (auto& m : modulators)
 				m->prepareToPlay(numChannels, sampleRate);
 		}
-		void setSmoothingLengthInSamples(const juce::Identifier& pID, float length) {
+		void setSmoothingLengthInSamples(const juce::Identifier& pID, float length) noexcept {
 			auto p = getParameter(pID);
 			p->get()->setSmoothingLengthInSamples(length);
 		}
@@ -723,7 +832,8 @@ namespace modSys2 {
 					const auto destChild = modChild.getChild(d);
 					const auto dID = destChild.getProperty(type.id).toString();
 					const auto dValue = static_cast<float>(destChild.getProperty(type.atten));
-					addDestination(mID, dID, dValue);
+					const auto bidirec = destChild.getProperty(type.bidirec).toString() == "0" ? false : true;
+					addDestination(mID, dID, dValue, bidirec);
 				}
 			}
 		}
@@ -738,36 +848,39 @@ namespace modSys2 {
 			}
 			modSysChild.removeAllChildren(nullptr);
 
-			for (const auto& modulator : modulators) {
-				const auto mod = modulator.get();
+			for (const auto& mod : modulators) {
 				juce::ValueTree modChild(type.modulator);
 				modChild.setProperty(type.id, mod->id.toString(), nullptr);
 				const auto& destVec = mod->getDestinations();
-				for (const auto& dest : destVec) {
-					const auto d = dest.get();
+				for (const auto& d : destVec) {
 					juce::ValueTree destChild(type.destination);
-					destChild.setProperty(type.id, d->id.toString(), nullptr);
-					destChild.setProperty(type.atten, d->getValue(), nullptr);
+					destChild.setProperty(type.id, d.id.toString(), nullptr);
+					destChild.setProperty(type.atten, d.getValue(), nullptr);
+					destChild.setProperty(type.bidirec, d.isBidirectional() ? 1 : 0, nullptr);
 					modChild.appendChild(destChild, nullptr);
 				}
 				modSysChild.appendChild(modChild, nullptr);
 			}
 		}
 		// ADD MODULATORS
-		std::shared_ptr<Modulator>& addMacroModulator(const juce::Identifier& pID) {
+		std::shared_ptr<Modulator> addMacroModulator(const juce::Identifier& pID) {
 			const auto p = getParameter(pID)->get();
-			modulators.push_back(std::make_shared<MacroModulator>(*p));
+			modulators.push_back(std::make_shared<MacroModulator>(p));
 			return modulators[modulators.size() - 1];
 		}
-		std::shared_ptr<Modulator>& addEnvelopeFollowerModulator(const juce::Identifier& atkPID, const juce::Identifier& rlsPID, const juce::Identifier& wdthPID, int idx) {
+		std::shared_ptr<Modulator> addEnvelopeFollowerModulator(const juce::Identifier& gainPID,
+			const juce::Identifier& atkPID, const juce::Identifier& rlsPID,
+			const juce::Identifier& biasPID, const juce::Identifier& wdthPID, int idx) {
+			const auto gainP = getParameter(gainPID)->get();
 			const auto atkP = getParameter(atkPID)->get();
 			const auto rlsP = getParameter(rlsPID)->get();
+			const auto biasP = getParameter(biasPID)->get();
 			const auto wdthP = getParameter(wdthPID)->get();
 			const juce::String idString("EnvFol" + static_cast<juce::String>(idx));
-			modulators.push_back(std::make_shared<EnvelopeFollowerModulator>(idString, *atkP, *rlsP, *wdthP));
+			modulators.push_back(std::make_shared<EnvelopeFollowerModulator>(idString, gainP, atkP, rlsP, biasP, wdthP));
 			return modulators[modulators.size() - 1];
 		}
-		std::shared_ptr<Modulator>& addLFOModulator(const juce::Identifier& syncPID, const juce::Identifier& ratePID,
+		std::shared_ptr<Modulator> addLFOModulator(const juce::Identifier& syncPID, const juce::Identifier& ratePID,
 			const juce::Identifier& wdthPID, const juce::Identifier& waveTablePID,
 			const param::MultiRange& ranges, int idx) {
 			const auto syncP = getParameter(syncPID)->get();
@@ -775,36 +888,56 @@ namespace modSys2 {
 			const auto wdthP = getParameter(wdthPID)->get();
 			const auto waveTableP = getParameter(waveTablePID)->get();
 			const juce::String idString("LFO" + static_cast<juce::String>(idx));
-			modulators.push_back(std::make_shared<LFOModulator>(idString, *syncP, *rateP, *wdthP, *waveTableP, ranges));
+			modulators.push_back(std::make_shared<LFOModulator>(idString, syncP, rateP, wdthP, waveTableP, ranges));
 			return modulators[modulators.size() - 1];
 		}
-		std::shared_ptr<Modulator>& addRandomModulator(const juce::Identifier& syncPID, const juce::Identifier& ratePID,
-			const juce::Identifier& biasPID,
+		std::shared_ptr<Modulator> addRandomModulator(const juce::Identifier& syncPID, const juce::Identifier& ratePID,
+			const juce::Identifier& biasPID, const juce::Identifier& widthPID, const juce::Identifier& smoothPID,
 			const param::MultiRange& ranges, int idx) {
 			const auto syncP = getParameter(syncPID)->get();
 			const auto rateP = getParameter(ratePID)->get();
 			const auto biasP = getParameter(biasPID)->get();
+			const auto widthP = getParameter(widthPID)->get();
+			const auto smoothP = getParameter(smoothPID)->get();
 			const juce::String idString("Rand" + static_cast<juce::String>(idx));
-			modulators.push_back(std::make_shared<RandomModulator>(idString, *syncP, *rateP, *biasP, ranges));
+			modulators.push_back(std::make_shared<RandomModulator>(idString, syncP, rateP, biasP, widthP, smoothP, ranges));
 			return modulators[modulators.size() - 1];
 		}
 		// MODIFY / REPLACE
-		void selectModulator(const juce::Identifier& mID) { selectedModulator = getModulator(mID)->get()->id; }
-		void addDestination(const juce::Identifier& mID, const juce::Identifier& pID, const float atten = 1.f) {
+		void selectModulator(const juce::Identifier& mID) { selectedModulator = getModulator(mID)->id; }
+		void addDestination(const juce::Identifier& mID, const juce::Identifier& pID, const float atten = 1.f, const bool bidirec = false) {
 			auto param = getParameter(pID)->get();
-			getModulator(mID)->get()->addDestination(param->id, param->data(), atten);
+			auto thisMod = getModulator(mID);
+
+			for (auto t = 0; t < modulators.size(); ++t) {
+				auto maybeThisMod = modulators[t];
+				if (maybeThisMod == thisMod)
+					for (auto m = 0; m < modulators.size(); ++m) {
+						auto otherMod = modulators[m];
+						if (otherMod != thisMod)
+							if (otherMod->usesParameter(pID)) {
+								thisMod->addDestination(param->id, param->data(), atten, bidirec);
+								if (t > m)
+									std::swap(modulators[t], modulators[m]);
+								if(otherMod->modulates(*thisMod))
+									otherMod->removeDestinations(thisMod.get());
+								return;
+							}
+					}
+			} // fix thing, mod can modulate parameter of own thing
+			thisMod->addDestination(param->id, param->data(), atten, bidirec);
 		}
 		void addDestination(const juce::Identifier& mID, const juce::Identifier& dID, Vec2D<float>& destBlock, const float atten = 1.f) {
-			getModulator(mID)->get()->addDestination(dID, destBlock, atten);
+			getModulator(mID)->addDestination(dID, destBlock, atten);
 		}
 		void removeDestination(const juce::Identifier& mID, const juce::Identifier& dID) {
-			getModulator(mID)->get()->removeDestination(dID);
+			getModulator(mID)->removeDestination(dID);
 		}
 		// PROCESS
 		void processBlock(const juce::AudioBuffer<float>& audioBuffer, juce::AudioPlayHead* playHead) {
 			const auto numChannels = audioBuffer.getNumChannels();
 			const auto numSamples = audioBuffer.getNumSamples();
-			if (playHead != nullptr) playHead->getCurrentPosition(curPosInfo);
+			if (playHead) playHead->getCurrentPosition(curPosInfo);
 			for (auto& p : parameters) p.get()->processBlock(numSamples);
 			for (auto& m : modulators) {
 				m->processBlock(audioBuffer, block, curPosInfo);
@@ -818,11 +951,13 @@ namespace modSys2 {
 			}
 		}
 		// GET
-		std::shared_ptr<Modulator>* getSelectedModulator() { return getModulator(selectedModulator); }
-		std::shared_ptr<Modulator>* getModulator(const juce::Identifier& mID) {
-			for (auto& modulator : modulators)
-				if (modulator.get()->hasID(mID))
-					return &modulator;
+		std::shared_ptr<Modulator> getSelectedModulator() noexcept { return getModulator(selectedModulator); }
+		std::shared_ptr<Modulator> getModulator(const juce::Identifier& mID) noexcept {
+			for (auto& mod : modulators) {
+				auto m = mod.get();
+				if (m->hasID(mID))
+					return mod;
+			}
 			return nullptr;
 		}
 		std::shared_ptr<Parameter>* getParameter(const juce::Identifier& pID) {
@@ -841,20 +976,24 @@ namespace modSys2 {
 
 	/* to do:
 	* 
-	* make possible: modulators modulate parameters of other modulators
+	* destination: bias / weight
 	* 
-	* destination: bias, bidirectional
-	* 
+	* if parameter smoothing not needed: parameter buffersize = 1
+	*	(a lot of the modulators don't need: less ram maybe?)
 	* 
 	* envelopeFollowerModulator
-	*	if atk or rls cur smoothing: sample-based param-update	
+	*	rewrite db to gain calculation so that it happens before parameter smoothing instead
+	*	if atk or rls cur smoothing: sample-based param-update
 	* 
 	* lfoModulator
-	*	free/sync >> sync playhead
 	*	how to handle dynamic param ranges (wtf did i mean with this)
+	*	add pump curve wavetable
 	* 
-	* randomModulator
-	*	fix bias thing (bias should bias towards both ends, think of bidirectional)
-	*	just finish this thing (you can do this! :> let's go!)
+	* all wavy mods (especially temposync ones)
+	*	phase parameter
+	* 
+	* editor
+	*	find more elegant way for vectorizing all modulatable parameters
+	*	
 	*/
 }

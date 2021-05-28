@@ -25,13 +25,13 @@ protected:
     juce::Label globalsLabel;
     modSys2Editor::ParameterExample depthP, modulesMixP;
 
-    modSys2Editor::ParameterExample envFolAtkP, envFolRlsP, envFolWdthP;
+    modSys2Editor::ParameterExample envFolGainP, envFolAtkP, envFolRlsP, envFolBiasP, envFolWdthP;
     modSys2Editor::EnvelopeFollowerDisplay envFolDisplay;
 
     modSys2Editor::ParameterExample lfoSyncP, lfoRateP, lfoWdthP, lfoWaveTableP;
     modSys2Editor::LFODisplay lfoDisplay;
 
-    modSys2Editor::ParameterExample randSyncP, randRateP, randBiasP;
+    modSys2Editor::ParameterExample randSyncP, randRateP, randBiasP, randWidthP, randSmoothP;
     modSys2Editor::LFODisplay randDisplay;
 
     juce::Label modulesLabel;

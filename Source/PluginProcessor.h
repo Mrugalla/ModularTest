@@ -3,7 +3,10 @@
 #include <JuceHeader.h>
 
 namespace param {
-	enum class ID { Macro0, Macro1, Macro2, Macro3, Depth, ModulesMix, EnvFolAtk, EnvFolRls, EnvFolWdth, LFOSync, LFORate, LFOWdth, LFOWaveTable, RandSync, RandRate, RandBias };
+	enum class ID { Macro0, Macro1, Macro2, Macro3, Depth,
+		ModulesMix, EnvFolGain, EnvFolAtk, EnvFolRls, EnvFolBias, EnvFolWdth, LFOSync,
+		LFORate, LFOWdth, LFOWaveTable, RandSync, RandRate,
+		RandBias, RandWdth, RandSmooth };
 
 	static juce::String getName(ID i) {
 		switch (i) {
@@ -13,8 +16,10 @@ namespace param {
 		case ID::Macro3: return "Macro 3";
 		case ID::Depth: return "Depth";
 		case ID::ModulesMix: return "ModulesMix";
+		case ID::EnvFolGain: return "EnvFolGain";
 		case ID::EnvFolAtk: return "EnvFolAtk";
 		case ID::EnvFolRls: return "EnvFolRls";
+		case ID::EnvFolBias: return "EnvFolBias";
 		case ID::EnvFolWdth: return "EnvFolWdth";
 		case ID::LFOSync: return "LFOSync";
 		case ID::LFORate: return "LFORate";
@@ -23,6 +28,8 @@ namespace param {
 		case ID::RandSync: return "RandSync";
 		case ID::RandRate: return "RandRate";
 		case ID::RandBias: return "RandBias";
+		case ID::RandWdth: return "RandWdth";
+		case ID::RandSmooth: return "RandSmooth";
 		default: return "";
 		}
 	}
@@ -169,6 +176,10 @@ namespace param {
 		return [](float value, int) {
 			return static_cast<juce::String>(std::rint(value)).substring(0, 5) + " ms"; };
 	}
+	static std::function<juce::String(float, int)> getDbStr() {
+		return [](float value, int) {
+			return static_cast<juce::String>(std::rint(value)).substring(0, 5) + " db"; };
+	}
 
 	static std::function<juce::String(bool, int)> getSyncStr() {
 		return [](bool value, int) {
@@ -177,13 +188,14 @@ namespace param {
 	}
 	static std::function<juce::String(float, int)> getRateStr(
 		const juce::AudioProcessorValueTreeState& apvts,
+		const ID syncID,
 		const juce::NormalisableRange<float>& freeRange,
 		const std::vector<juce::String>& syncStrings)
 	{
-		return [&tree = apvts, freeRange, syncStrings](float value, int) {
-			const auto syncP = tree.getRawParameterValue(getID(ID::LFOSync));
+		return [&apvts, syncID, freeRange, syncStrings](float value, int) {
+			const auto syncP = apvts.getRawParameterValue(getID(syncID));
 			const auto sync = syncP->load();
-			if (sync == 0.f) {
+			if (sync < .5f) {
 				value = freeRange.convertFrom0to1(value);
 				return static_cast<juce::String>(std::rint(value)).substring(0, 4);
 			}
@@ -204,8 +216,10 @@ namespace param {
 		parameters.push_back(createParameter(ID::Depth, 1.f));
 		parameters.push_back(createParameter(ID::ModulesMix, 0.5f));
 
+		parameters.push_back(createParameter(ID::EnvFolGain, 1.f, juce::NormalisableRange<float>(0.f, 24.f), getDbStr()));
 		parameters.push_back(createParameter(ID::EnvFolAtk, 1.f, juce::NormalisableRange<float>(6.f, 1000.f), getMsStr()));
 		parameters.push_back(createParameter(ID::EnvFolRls, 0.5f, juce::NormalisableRange<float>(6.f, 1000.f), getMsStr()));
+		parameters.push_back(createParameter(ID::EnvFolBias, .5f));
 		parameters.push_back(createParameter(ID::EnvFolWdth, 1.f));
 
 		auto tsValues = getTempoSyncValues(6);
@@ -213,7 +227,8 @@ namespace param {
 
 		lfoFreeSyncRanges.add("free", { .1f, 20.f, 1.f });
 		lfoFreeSyncRanges.add("sync", getTempoSyncRange(tsValues));
-		auto rateStr = getRateStr(apvts, lfoFreeSyncRanges("free"), tsStrings);
+
+		auto rateStr = getRateStr(apvts, ID::LFOSync, lfoFreeSyncRanges("free"), tsStrings);
 
 		parameters.push_back(createPBool(ID::LFOSync, false, getSyncStr()));
 		parameters.push_back(createParameter(ID::LFORate, .5f, juce::NormalisableRange<float>(0.f, 1.f, 0.f), rateStr));
@@ -225,12 +240,15 @@ namespace param {
 				juce::String("SIN") :
 				juce::String("SQR");
 		};
+		rateStr = getRateStr(apvts, ID::RandSync, lfoFreeSyncRanges("free"), tsStrings);
 
 		parameters.push_back(createParameter(ID::LFOWaveTable, 0.f, juce::NormalisableRange<float>(0, 2, 1), waveTableStrings));
 
 		parameters.push_back(createPBool(ID::RandSync, false, getSyncStr()));
 		parameters.push_back(createParameter(ID::RandRate, .5f, juce::NormalisableRange<float>(0.f, 1.f, 0.f), rateStr));
 		parameters.push_back(createParameter(ID::RandBias, .5f));
+		parameters.push_back(createParameter(ID::RandWdth, 0.f));
+		parameters.push_back(createParameter(ID::RandSmooth, 1.f));
 
 		return { parameters.begin(), parameters.end() };
 	}
@@ -266,7 +284,7 @@ struct ModularTestAudioProcessor :
 
 	param::MultiRange lfoFreeSyncRanges;
 	juce::AudioProcessorValueTreeState apvts;
-	ThreadSafeObject<modSys2::Matrix> matrix;
+	ThreadSafePtr<modSys2::Matrix> matrix;
 	
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (ModularTestAudioProcessor)
 };

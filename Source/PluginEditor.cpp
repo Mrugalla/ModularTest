@@ -17,8 +17,10 @@ ModularTestAudioProcessorEditor::ModularTestAudioProcessorEditor(ModularTestAudi
     depthP(audioProcessor, param::getID(param::ID::Depth), audioProcessor.getChannelCountOfBus(false, 0)),
     modulesMixP(audioProcessor, param::getID(param::ID::ModulesMix), audioProcessor.getChannelCountOfBus(false, 0)),
 
+    envFolGainP(audioProcessor, param::getID(param::ID::EnvFolGain), audioProcessor.getChannelCountOfBus(false, 0)),
     envFolAtkP(audioProcessor, param::getID(param::ID::EnvFolAtk), audioProcessor.getChannelCountOfBus(false, 0)),
     envFolRlsP(audioProcessor, param::getID(param::ID::EnvFolRls), audioProcessor.getChannelCountOfBus(false, 0)),
+    envFolBiasP(audioProcessor, param::getID(param::ID::EnvFolBias), audioProcessor.getChannelCountOfBus(false, 0)),
     envFolWdthP(audioProcessor, param::getID(param::ID::EnvFolWdth), audioProcessor.getChannelCountOfBus(false, 0)),
     envFolDisplay(0, audioProcessor.getChannelCountOfBus(false, 0)),
 
@@ -31,17 +33,19 @@ ModularTestAudioProcessorEditor::ModularTestAudioProcessorEditor(ModularTestAudi
     randSyncP(audioProcessor, param::getID(param::ID::RandSync), audioProcessor.getChannelCountOfBus(false, 0)),
     randRateP(audioProcessor, param::getID(param::ID::RandRate), audioProcessor.getChannelCountOfBus(false, 0)),
     randBiasP(audioProcessor, param::getID(param::ID::RandBias), audioProcessor.getChannelCountOfBus(false, 0)),
+    randWidthP(audioProcessor, param::getID(param::ID::RandWdth), audioProcessor.getChannelCountOfBus(false, 0)),
+    randSmoothP(audioProcessor, param::getID(param::ID::RandSmooth), audioProcessor.getChannelCountOfBus(false, 0)),
     randDisplay(juce::String("Rand0"), audioProcessor.getChannelCountOfBus(false, 0)),
 
     modulesLabel("Modules", "Modules"),
 
-    macro0Dragger(audioProcessor, param::getID(param::ID::Macro0), { &depthP, &modulesMixP }),
-    macro1Dragger(audioProcessor, param::getID(param::ID::Macro1), { &depthP, &modulesMixP }),
-    macro2Dragger(audioProcessor, param::getID(param::ID::Macro2), { &depthP, &modulesMixP }),
-    macro3Dragger(audioProcessor, param::getID(param::ID::Macro3), { &depthP, &modulesMixP }),
-    envFolDragger(audioProcessor, juce::String("EnvFol0"), { &depthP, &modulesMixP }),
-    lfoDragger(audioProcessor, juce::String("LFO0"), { &depthP, &modulesMixP }),
-    randDragger(audioProcessor, juce::String("Rand0"), { &depthP, &modulesMixP })
+    macro0Dragger(audioProcessor, param::getID(param::ID::Macro0), { &depthP, &modulesMixP, &envFolGainP, &envFolAtkP, &envFolRlsP, &envFolBiasP, &envFolWdthP, &lfoSyncP, &lfoRateP, &lfoWdthP, &lfoWaveTableP, &randSyncP, &randRateP, &randBiasP, &randSmoothP, &randWidthP }),
+    macro1Dragger(audioProcessor, param::getID(param::ID::Macro1), { &depthP, &modulesMixP, &envFolGainP, &envFolAtkP, &envFolRlsP, &envFolBiasP, &envFolWdthP, &lfoSyncP, &lfoRateP, &lfoWdthP, &lfoWaveTableP, &randSyncP, &randRateP, &randBiasP, &randSmoothP, &randWidthP }),
+    macro2Dragger(audioProcessor, param::getID(param::ID::Macro2), { &depthP, &modulesMixP, &envFolGainP, &envFolAtkP, &envFolRlsP, &envFolBiasP, &envFolWdthP, &lfoSyncP, &lfoRateP, &lfoWdthP, &lfoWaveTableP, &randSyncP, &randRateP, &randBiasP, &randSmoothP, &randWidthP }),
+    macro3Dragger(audioProcessor, param::getID(param::ID::Macro3), { &depthP, &modulesMixP, &envFolGainP, &envFolAtkP, &envFolRlsP, &envFolBiasP, &envFolWdthP, &lfoSyncP, &lfoRateP, &lfoWdthP, &lfoWaveTableP, &randSyncP, &randRateP, &randBiasP, &randSmoothP, &randWidthP }),
+    envFolDragger(audioProcessor, juce::String("EnvFol0"), { &depthP, &modulesMixP, &envFolGainP, &envFolAtkP, &envFolRlsP, &envFolBiasP, &envFolWdthP, &lfoSyncP, &lfoRateP, &lfoWdthP, &lfoWaveTableP, &randSyncP, &randRateP, &randBiasP, &randSmoothP, &randWidthP }),
+    lfoDragger(audioProcessor, juce::String("LFO0"), { &depthP, &modulesMixP, &envFolGainP, &envFolAtkP, &envFolRlsP, &envFolBiasP, &envFolWdthP, &lfoSyncP, &lfoRateP, &lfoWdthP, &lfoWaveTableP, &randSyncP, &randRateP, &randBiasP, &randSmoothP, &randWidthP }),
+    randDragger(audioProcessor, juce::String("Rand0"), { &depthP, &modulesMixP, &envFolGainP, &envFolAtkP, &envFolRlsP, &envFolBiasP, &envFolWdthP, &lfoSyncP, &lfoRateP, &lfoWdthP, &lfoWaveTableP, &randSyncP, &randRateP, &randBiasP, &randSmoothP, &randWidthP })
 {
     addAndMakeVisible(macrosLabel);
     macrosLabel.setJustificationType(juce::Justification::centred);
@@ -55,7 +59,9 @@ ModularTestAudioProcessorEditor::ModularTestAudioProcessorEditor(ModularTestAudi
 
     addAndMakeVisible(depthP); addAndMakeVisible(modulesMixP);
 
+    addAndMakeVisible(envFolGainP);
     addAndMakeVisible(envFolAtkP); addAndMakeVisible(envFolRlsP);
+    addAndMakeVisible(envFolBiasP);
     addAndMakeVisible(envFolWdthP); addAndMakeVisible(envFolDisplay);
 
     addAndMakeVisible(lfoSyncP); addAndMakeVisible(lfoRateP);
@@ -63,7 +69,8 @@ ModularTestAudioProcessorEditor::ModularTestAudioProcessorEditor(ModularTestAudi
     addAndMakeVisible(lfoDisplay);
 
     addAndMakeVisible(randSyncP); addAndMakeVisible(randRateP);
-    addAndMakeVisible(randBiasP);
+    addAndMakeVisible(randBiasP); addAndMakeVisible(randWidthP);
+    addAndMakeVisible(randSmoothP);
     addAndMakeVisible(randDisplay);
 
     addAndMakeVisible(macro0Dragger); addAndMakeVisible(macro1Dragger);
@@ -74,7 +81,7 @@ ModularTestAudioProcessorEditor::ModularTestAudioProcessorEditor(ModularTestAudi
     setOpaque(true);
     setResizable(true, true);
     startTimerHz(25);
-    setSize (850, 550);
+    setSize (950, 500);
 }
 
 void ModularTestAudioProcessorEditor::paint (juce::Graphics& g) { g.fillAll(juce::Colours::black); }
@@ -83,7 +90,7 @@ void ModularTestAudioProcessorEditor::resized() {
     auto x = 0.f;
     auto y = 0.f;
     auto height = (float)getHeight() / 5.f;
-    const auto width = getWidth() / 5.f;
+    const auto width = getWidth() / 6.f;
     const auto knobWidth = width / 2.f;
 
     macrosLabel.setBounds(maxQuadIn(juce::Rectangle<float>(x, y, width, height)).reduced(10).toNearestInt());
@@ -121,21 +128,26 @@ void ModularTestAudioProcessorEditor::resized() {
 
     const auto modulesX = x;
     const auto moduleHeight = height / 2.f;
-    auto moduleObjWidth = width / 2.f;
-    envFolDragger.setQBounds(maxQuadIn(juce::Rectangle<float>(x, y, moduleObjWidth, moduleHeight)).toNearestInt());
+    auto moduleObjWidth = width * .5f;
+    const auto draggerWidth = moduleObjWidth * .5f;
+    envFolDragger.setQBounds(maxQuadIn(juce::Rectangle<float>(x, y, draggerWidth, moduleHeight)).toNearestInt());
     x += moduleObjWidth;
     envFolDisplay.setBounds(maxQuadIn(juce::Rectangle<float>(x, y, moduleObjWidth, moduleHeight)).toNearestInt());
+    x += moduleObjWidth;
+    envFolGainP.setBounds(maxQuadIn(juce::Rectangle<float>(x, y, moduleObjWidth, moduleHeight)).toNearestInt());
     x += moduleObjWidth;
     envFolAtkP.setBounds(maxQuadIn(juce::Rectangle<float>(x, y, moduleObjWidth, moduleHeight)).toNearestInt());
     x += moduleObjWidth;
     envFolRlsP.setBounds(maxQuadIn(juce::Rectangle<float>(x, y, moduleObjWidth, moduleHeight)).toNearestInt());
+    x += moduleObjWidth;
+    envFolBiasP.setBounds(maxQuadIn(juce::Rectangle<float>(x, y, moduleObjWidth, moduleHeight)).toNearestInt());
     x += moduleObjWidth;
     envFolWdthP.setBounds(maxQuadIn(juce::Rectangle<float>(x, y, moduleObjWidth, moduleHeight)).toNearestInt());
     
     x = modulesX;
     y += moduleHeight;
 
-    lfoDragger.setQBounds(maxQuadIn(juce::Rectangle<float>(x, y, moduleObjWidth, moduleHeight)).toNearestInt());
+    lfoDragger.setQBounds(maxQuadIn(juce::Rectangle<float>(x, y, draggerWidth, moduleHeight)).toNearestInt());
     x += moduleObjWidth;
     lfoDisplay.setBounds(maxQuadIn(juce::Rectangle<float>(x, y, moduleObjWidth, moduleHeight)).toNearestInt());
     x += moduleObjWidth;
@@ -150,7 +162,7 @@ void ModularTestAudioProcessorEditor::resized() {
     x = modulesX;
     y += moduleHeight;
 
-    randDragger.setQBounds(maxQuadIn(juce::Rectangle<float>(x, y, moduleObjWidth, moduleHeight)).toNearestInt());
+    randDragger.setQBounds(maxQuadIn(juce::Rectangle<float>(x, y, draggerWidth, moduleHeight)).toNearestInt());
     x += moduleObjWidth;
     randDisplay.setBounds(maxQuadIn(juce::Rectangle<float>(x, y, moduleObjWidth, moduleHeight)).toNearestInt());
     x += moduleObjWidth;
@@ -159,6 +171,10 @@ void ModularTestAudioProcessorEditor::resized() {
     randRateP.setBounds(maxQuadIn(juce::Rectangle<float>(x, y, moduleObjWidth, moduleHeight)).toNearestInt());
     x += moduleObjWidth;
     randBiasP.setBounds(maxQuadIn(juce::Rectangle<float>(x, y, moduleObjWidth, moduleHeight)).toNearestInt());
+    x += moduleObjWidth;
+    randWidthP.setBounds(maxQuadIn(juce::Rectangle<float>(x, y, moduleObjWidth, moduleHeight)).toNearestInt());
+    x += moduleObjWidth;
+    randSmoothP.setBounds(maxQuadIn(juce::Rectangle<float>(x, y, moduleObjWidth, moduleHeight)).toNearestInt());
 }
 
 void ModularTestAudioProcessorEditor::timerCallback() {
@@ -172,7 +188,9 @@ void ModularTestAudioProcessorEditor::timerCallback() {
     macro0Dragger.timerCallback(matrix); macro1Dragger.timerCallback(matrix);
     macro2Dragger.timerCallback(matrix); macro3Dragger.timerCallback(matrix);
 
+    envFolGainP.timerCallback(matrix);
     envFolAtkP.timerCallback(matrix); envFolRlsP.timerCallback(matrix);
+    envFolBiasP.timerCallback(matrix);
     envFolWdthP.timerCallback(matrix); envFolDisplay.timerCallback(matrix);
     envFolDragger.timerCallback(matrix);
 
@@ -181,7 +199,8 @@ void ModularTestAudioProcessorEditor::timerCallback() {
     lfoDisplay.timerCallback(matrix); lfoDragger.timerCallback(matrix);
 
     randSyncP.timerCallback(matrix); randRateP.timerCallback(matrix);
-    randBiasP.timerCallback(matrix);
+    randBiasP.timerCallback(matrix); randWidthP.timerCallback(matrix);
+    randSmoothP.timerCallback(matrix);
     randDisplay.timerCallback(matrix); randDragger.timerCallback(matrix);
     //*/
 }
