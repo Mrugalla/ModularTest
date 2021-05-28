@@ -530,28 +530,25 @@ namespace modSys2 {
 			const auto lastSample = numSamples - 1;
 			const bool isFree = params[Sync]->get(0, 0) < .5f;
 
-			if (isFree)
-				for (auto ch = 0; ch < numChannels; ++ch) {
-					const auto rateValue = juce::jlimit(0.f, 1.f, params[Rate]->get(ch, lastSample));
-					const auto rate = multiRange(freeID).convertFrom0to1(rateValue);
-					const auto inc = rate * fsInv;
-					processPhase(block, inc, ch, numSamples);
-				}
+			if (isFree) {
+				const auto rateValue = juce::jlimit(0.f, 1.f, params[Rate]->get(0, 0));
+				const auto rate = multiRange(freeID).convertFrom0to1(rateValue);
+				const auto inc = rate * fsInv;
+				processPhase(block, inc, 0, numSamples);
+			}
 			else {
 				const auto bpm = playHead.bpm;
 				const auto bps = bpm / 60.;
 				const auto quarterNoteLengthInSamples = Fs / bps;
 				const auto barLengthInSamples = quarterNoteLengthInSamples * 4.;
 				const auto ppq = playHead.ppqPosition * .25;
-				for (auto ch = 0; ch < numChannels; ++ch) {
-					const auto rateValue = juce::jlimit(0.f, 1.f, params[Rate]->get(ch, lastSample));
-					const auto rate = multiRange(syncID).convertFrom0to1(rateValue);
-					const auto inc = 1.f / (static_cast<float>(barLengthInSamples) * rate);
-					const auto ppqCh = static_cast<float>(ppq) / rate;
-					auto newPhase = (ppqCh - std::floor(ppqCh));
-					phase[ch] = newPhase;
-					processPhase(block, inc, ch, numSamples);
-				}
+				const auto rateValue = juce::jlimit(0.f, 1.f, params[Rate]->get(0, 0));
+				const auto rate = multiRange(syncID).convertFrom0to1(rateValue);
+				const auto inc = 1.f / (static_cast<float>(barLengthInSamples) * rate);
+				const auto ppqCh = static_cast<float>(ppq) / rate;
+				auto newPhase = (ppqCh - std::floor(ppqCh));
+				phase[0] = newPhase;
+				processPhase(block, inc, 0, numSamples);
 			}
 			processWidth(block, lastSample, numChannels, numSamples);
 			processWaveTable(block, numChannels, numSamples);
@@ -564,23 +561,19 @@ namespace modSys2 {
 		WaveTables waveTables;
 		float fsInv;
 
-		inline void processWidth(Block& block, const int lastSample, const int numChannels, const int numSamples) {
+		inline void processWidth(Block& block, const int lastSample, const int numChannels, const int numSamples) noexcept {
 			const auto width = params[Width]->denormalized(0, lastSample) * .5f;
-			if (width > 0.f)
+			if(width > 0.f)
 				for (auto ch = 1; ch < numChannels; ++ch)
 					for (auto s = 0; s < numSamples; ++s) {
-						auto offsetSample = block(ch, s) + width;
-						if (offsetSample >= 1.f)
-							--offsetSample;
-						block(ch, s) = offsetSample;
+						block(ch, s) = block(0, s) + width;
+						if (block(ch, s) >= 1.f) --block(ch, s);
 					}
 			else
 				for (auto ch = 1; ch < numChannels; ++ch)
 					for (auto s = 0; s < numSamples; ++s) {
-						auto offsetSample = block(ch, s) + width;
-						if (offsetSample < 0.f)
-							++offsetSample;
-						block(ch, s) = offsetSample;
+						block(ch, s) = block(0, s) + width;
+						if (block(ch, s) < 0.f) ++block(ch, s);
 					}
 		}
 
@@ -909,22 +902,24 @@ namespace modSys2 {
 			auto param = getParameter(pID)->get();
 			auto thisMod = getModulator(mID);
 
-			for (auto t = 0; t < modulators.size(); ++t) {
+			for (auto t = 0; t < modulators.size(); ++t) { // search for mod i wanna add a dest to
 				auto maybeThisMod = modulators[t];
-				if (maybeThisMod == thisMod)
-					for (auto m = 0; m < modulators.size(); ++m) {
+				if (maybeThisMod == thisMod)  // found it.
+					for (auto m = 0; m < modulators.size(); ++m) { // search for mod that has the parameter
 						auto otherMod = modulators[m];
-						if (otherMod != thisMod)
-							if (otherMod->usesParameter(pID)) {
-								thisMod->addDestination(param->id, param->data(), atten, bidirec);
-								if (t > m)
+						if (otherMod->usesParameter(pID)) // found it
+							if (otherMod != thisMod) // does the parameter belong to another mod?
+							{
+								thisMod->addDestination(param->id, param->data(), atten, bidirec); // add dest
+								if (t > m) // swap if needed
 									std::swap(modulators[t], modulators[m]);
-								if(otherMod->modulates(*thisMod))
+								if (otherMod->modulates(*thisMod)) // remove conflicting dests from other mod
 									otherMod->removeDestinations(thisMod.get());
 								return;
 							}
+							else return;
 					}
-			} // fix thing, mod can modulate parameter of own thing
+			} // parameter doesn't belong to any modulator, so just add
 			thisMod->addDestination(param->id, param->data(), atten, bidirec);
 		}
 		void addDestination(const juce::Identifier& mID, const juce::Identifier& dID, Vec2D<float>& destBlock, const float atten = 1.f) {
@@ -978,6 +973,10 @@ namespace modSys2 {
 	* 
 	* destination: bias / weight
 	* 
+	* makes no sense that there is a stereo buffer for certain parameters
+	* like the lfo rate. why would it be stereo? or would it?
+	*	maybe let destinations be stereo, but if dest == parameter, just mid or left
+	* 
 	* if parameter smoothing not needed: parameter buffersize = 1
 	*	(a lot of the modulators don't need: less ram maybe?)
 	* 
@@ -994,6 +993,6 @@ namespace modSys2 {
 	* 
 	* editor
 	*	find more elegant way for vectorizing all modulatable parameters
-	*	
+	*
 	*/
 }
