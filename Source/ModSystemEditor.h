@@ -25,8 +25,9 @@ namespace modSys2Editor {
 
 			void paint(juce::Graphics& g) override {
 				g.setColour(juce::Colours::limegreen);
-				auto matrix = processor.matrix.getCopyOfUpdatedPtr();
+				auto matrix = processor.matrix.getUpdatedPtr();
 				const auto dest = matrix->getSelectedModulator()->getDestination(parameter.id);
+				if (dest == nullptr) return;
 				const juce::String txt = dest->isBidirectional() ? "Mb" : "M";
 				g.drawFittedText(txt, getLocalBounds(), juce::Justification::centred, 1);
 				g.drawEllipse(getLocalBounds().toFloat(), 1);
@@ -44,7 +45,7 @@ namespace modSys2Editor {
 				const auto speed = evt.mods.isShiftDown() ? .01f : .1f;
 				const auto value = juce::jlimit(-1.f, 1.f, dragStartValue + v * speed);
 				auto s = matrix->getSelectedModulator();
-				s->setAttenuvertor(matrix->getParameter(parameter.id)->get()->id, value);
+				s->setAttenuvertor(matrix->getParameter(parameter.id)->id, value);
 			}
 			void mouseUp(const juce::MouseEvent& evt) override {
 				if (evt.mouseWasDraggedSinceMouseDown()) return;
@@ -70,10 +71,8 @@ namespace modSys2Editor {
 			attach(parameter, [this](float) { repaint(); }, nullptr),
 			linkedModulatorID(),
 			modGainDragger(p, *this),
-			curModSumValue(0),
-			sumValue(0)
+			sumValue(0), curModSumValue(0)
 		{
-			sumValue.resize(numChannels);
 			if(linkedModID.isNotEmpty()) linkedModulatorID = linkedModID;
 			addChildComponent(modGainDragger);
 			attach.sendInitialUpdate();
@@ -92,13 +91,11 @@ namespace modSys2Editor {
 				else modGainDragger.setVisible(false);
 			}
 			bool needRepaint = false;
-			for (auto ch = 0; ch < sumValue.size(); ++ch) {
-				const auto sv = matrix.get()->getParameter(id)->get()->getSumValue(ch);
-				if (curModSumValue != cmsv || sumValue[ch] != sv) {
-					curModSumValue = cmsv;
-					sumValue[ch] = sv;
-					needRepaint = true;
-				}
+			const auto sv = matrix->getParameter(id)->getSumValue();
+			if (curModSumValue != cmsv || sumValue != sv) {
+				curModSumValue = cmsv;
+				sumValue = sv;
+				needRepaint = true;
 			}
 			if(needRepaint) repaint();
 		}
@@ -108,8 +105,7 @@ namespace modSys2Editor {
 		juce::ParameterAttachment attach;
 		juce::Identifier linkedModulatorID;
 		SelectedModulatorGainDragger modGainDragger;
-		std::vector<float> sumValue;
-		float curModSumValue;
+		float sumValue, curModSumValue;
 
 		void mouseDown(const juce::MouseEvent&) override { selectLinkedModulator(); }
 
@@ -146,7 +142,7 @@ namespace modSys2Editor {
 			const auto x = value * width;
 			juce::Rectangle<float> valueArea(0.f, 0.f, x, height);
 			g.fillRect(valueArea);
-
+			
 			const auto sumX = static_cast<int>(curModSumValue * width);
 			auto startX = x;
 			auto rangeX = sumX - x;
@@ -157,7 +153,7 @@ namespace modSys2Editor {
 			g.setColour(juce::Colours::rebeccapurple);
 			juce::Rectangle<float> rangeArea(startX, 0.f, rangeX, height);
 			g.fillRect(rangeArea);
-
+			
 			g.setColour(juce::Colours::blue.brighter(.4f));
 			g.drawVerticalLine(sumX, 0.f, height);
 			g.drawVerticalLine(sumX - 1, 0.f, height);
@@ -167,19 +163,16 @@ namespace modSys2Editor {
 			g.drawVerticalLine(xInt, 0.f, height);
 			g.drawVerticalLine(xInt + 1, 0.f, height);
 
-			const auto numChannels = sumValue.size();
-			for (auto ch = 0; ch < numChannels; ++ch) {
-				const auto sumValueX = static_cast<int>(sumValue[ch] * width);
-				g.setColour(juce::Colours::purple);
-				g.drawVerticalLine(sumValueX - 1, 0.f, height);
-				g.drawVerticalLine(sumValueX, 0.f, height);
-				g.drawVerticalLine(sumValueX + 1, 0.f, height);
+			const auto sumValueX = static_cast<int>(sumValue * width);
+			g.setColour(juce::Colours::purple);
+			g.drawVerticalLine(sumValueX - 1, 0.f, height);
+			g.drawVerticalLine(sumValueX, 0.f, height);
+			g.drawVerticalLine(sumValueX + 1, 0.f, height);
 
-				const auto actualValue = parameter.getCurrentValueAsText();
-				const auto valueStr = parameter.getName(64) + ":\n" + actualValue + "\nsum: " + juce::String(sumValue[ch]).substring(0, 4);
-				g.setColour(juce::Colours::white);
-				g.drawFittedText(valueStr, getLocalBounds(), juce::Justification::centredTop, 2);
-			}
+			const auto actualValue = parameter.getCurrentValueAsText();
+			const auto valueStr = parameter.getName(64) + ":\n" + actualValue + "\nsum: " + juce::String(sumValue).substring(0, 4);
+			g.setColour(juce::Colours::white);
+			g.drawFittedText(valueStr, getLocalBounds(), juce::Justification::centredTop, 2);
 		}
 		void resized() override { modGainDragger.setBounds(0, 0, getWidth() / 6, getHeight() / 6); }
 		void mouseDown(const juce::MouseEvent& evt) override {
@@ -261,10 +254,10 @@ namespace modSys2Editor {
 			if (hoveredParameter != nullptr) {
 				auto matrix = processor.matrix.getCopyOfUpdatedPtr();
 				const auto m = matrix->getModulator(id);
-				const auto& p = matrix->getParameter(hoveredParameter->id)->get();
+				const auto p = matrix->getParameter(hoveredParameter->id);
 				const auto pValue = processor.apvts.getRawParameterValue(p->id);
 				const auto atten = 1.f - *pValue;
-				matrix->addDestination(m->id, p->id, atten);
+				matrix->addDestinationParameter(m->id, p->id, atten);
 				processor.matrix.replaceUpdatedPtrWith(matrix);
 				hoveredParameter = nullptr;
 			}
