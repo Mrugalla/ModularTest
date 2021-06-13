@@ -736,7 +736,7 @@ namespace modSys2 {
 			const int numSamples, const int ch) noexcept {
 			for (auto s = 0; s < numSamples; ++s) {
 				if (block[1][s] == 1.f)
-					randValue[ch] = getBiasedValue(rand.nextFloat(), bias, ch, s);
+					randValue[ch] = getBiasedValue(rand.nextFloat(), bias);
 				block[ch][s] = randValue[ch];
 			}
 		}
@@ -764,7 +764,7 @@ namespace modSys2 {
 				smoothing[ch].processBlock(block[ch], numSamples);
 			}
 		}
-		const float getBiasedValue(float value, float bias, const int ch, const int s) const noexcept {
+		const float getBiasedValue(float value, float bias) const noexcept {
 			if (bias < .5f) {
 				const auto a = bias * 2.f;
 				return std::atan(std::tan(value * pi - .5f * pi) * a) / pi + .5f;
@@ -1013,6 +1013,9 @@ namespace modSys2 {
 	* lfoModulator
 	*	add pump curve wavetable
 	*
+	* randModulator
+	*	try rewrite with spline interpolator instead lowpass
+	* 
 	* all wavy mods (especially temposync ones)
 	*	phase parameter
 	*
