@@ -36,6 +36,7 @@ namespace modSys2 {
 		cpi.timeSigNumerator = 1;
 		return cpi;
 	}
+	enum ChannelSetup { Left, Right, Mid, Side };
 
 	/*
 	* spline interpolation that expects indexes that never go out of bounds
@@ -77,6 +78,52 @@ namespace modSys2 {
 		bool hasID(const juce::Identifier& otherID) const noexcept { return id == otherID; }
 		bool operator==(const Identifiable& other) const noexcept { return id == other.id; }
 		juce::Identifier id;
+	};
+	/*
+	* hermit spline interpolation
+	*/
+	struct Spline {
+		static constexpr int Size = 4;
+		static float process(const float* data, const float x) noexcept {
+			auto iFloor = std::floor(x);
+			auto i0 = static_cast<int>(iFloor);
+			auto i1 = i0 + 1;
+			auto i2 = i0 + 2;
+			auto i3 = i0 + 3;
+
+			auto frac = x - iFloor;
+			auto v0 = data[i0];
+			auto v1 = data[i1];
+			auto v2 = data[i2];
+			auto v3 = data[i3];
+
+			auto c0 = v1;
+			auto c1 = .5f * (v2 - v0);
+			auto c2 = v0 - 2.5f * v1 + 2.f * v2 - .5f * v3;
+			auto c3 = 1.5f * (v1 - v2) + .5f * (v3 - v0);
+
+			return ((c3 * frac + c2) * frac + c1) * frac + c0;
+		}
+		static float processChecked(const float* data, const float x, const int size) noexcept {
+			auto iFloor = std::floor(x);
+			auto i0 = static_cast<int>(iFloor);
+			auto i1 = (i0 + 1) % size;
+			auto i2 = (i0 + 2) % size;
+			auto i3 = (i0 + 3) % size;
+
+			auto frac = x - iFloor;
+			auto v0 = data[i0];
+			auto v1 = data[i1];
+			auto v2 = data[i2];
+			auto v3 = data[i3];
+
+			auto c0 = v1;
+			auto c1 = .5f * (v2 - v0);
+			auto c2 = v0 - 2.5f * v1 + 2.f * v2 - .5f * v3;
+			auto c3 = 1.5f * (v1 - v2) + .5f * (v3 - v0);
+
+			return ((c3 * frac + c2) * frac + c1) * frac + c0;
+		}
 	};
 
 	/*
@@ -167,8 +214,8 @@ namespace modSys2 {
 		// GET NORMAL
 		float getSumValue() const noexcept { return sumValue.get(); }
 		float get(const int s = 0) const noexcept { return block[s]; }
-		float* data() noexcept { return block.data(); }
-		const float* data() const noexcept { return block.data(); }
+		std::vector<float>& data() noexcept { return block; }
+		const std::vector<float>& data() const noexcept { return block; }
 		// GET CONVERTED
 		float denormalized(const int s = 0) const noexcept {
 			return rap->convertFrom0to1(juce::jlimit(0.f, 1.f, block[s]));
@@ -188,13 +235,25 @@ namespace modSys2 {
 	struct Destination :
 		public Identifiable
 	{
-		Destination(const juce::Identifier& dID, float defaultAtten = 1.f, bool defaultBidirectional = false) :
+		Destination(const juce::Identifier& dID, std::vector<float>& destBlck, ChannelSetup defaultSetup, float defaultAtten = 1.f, bool defaultBidirectional = false) :
 			Identifiable(dID),
 			attenuvertor(defaultAtten),
-			bidirectional(defaultBidirectional)
-		{}
+			bidirectional(defaultBidirectional),
+			destBlock(destBlck),
+			channelSetup(defaultSetup)
+		{
+		}
 		Destination(Destination&) = default;
-		virtual void processBlock(const float** modSignal, const int numChannels, const int numSamples) noexcept = 0;
+		const ChannelSetup getChannelSetup() const noexcept { return channelSetup; }
+		void processBlock(float* modBlock, const int numSamples) noexcept {
+			const auto atten = attenuvertor.get();
+			if (isBidirectional())
+				for (auto s = 0; s < numSamples; ++s)
+					destBlock[s] += (2.f * modBlock[s] - 1.f) * atten;
+			else
+				for (auto s = 0; s < numSamples; ++s)
+					destBlock[s] += modBlock[s] * atten;
+		}
 		void setValue(float value) noexcept { attenuvertor.set(value); }
 		float getValue() const noexcept { return attenuvertor.get(); }
 		void setBirectional(bool b) noexcept { bidirectional.set(b); }
@@ -202,45 +261,8 @@ namespace modSys2 {
 	protected:
 		juce::Atomic<float> attenuvertor;
 		juce::Atomic<bool> bidirectional;
-	};
-
-	struct DestinationParameter :
-		public Destination {
-		DestinationParameter(const juce::Identifier& dID, Parameter& destParam, float defaultAtten = 1.f, bool defaultBidirectional = false) :
-			Destination(dID, defaultAtten, defaultBidirectional),
-			parameter(destParam)
-		{}
-		void processBlock(const float** modSignal, const int, const int numSamples) noexcept override {
-			const auto atten = attenuvertor.get();
-			auto destBlock = parameter.data();
-			if(isBidirectional())
-				for (auto s = 0; s < numSamples; ++s)
-					destBlock[s] += (2.f * modSignal[0][s] - 1.f) * atten;
-			else
-				for (auto s = 0; s < numSamples; ++s)
-					destBlock[s] += modSignal[0][s] * atten;
-		}
-		Parameter& parameter;
-	};
-	struct DestinationStereo :
-		public Destination {
-		DestinationStereo(const juce::Identifier& dID, float** destBlck, float defaultAtten = 1.f, bool defaultBidirectional = false) :
-			Destination(dID, defaultAtten, defaultBidirectional),
-			destBlock(destBlck)
-		{}
-		void processBlock(const float** modSignal, int numChannels, const int numSamples) noexcept override {
-			numChannels = numChannels > 2 ? 2 : numChannels;
-			const auto atten = attenuvertor.get();
-			if (isBidirectional())
-				for (auto ch = 0; ch < numChannels; ++ch)
-					for (auto s = 0; s < numSamples; ++s)
-						destBlock[ch][s] += (2.f * modSignal[ch][s] - 1.f) * atten;
-			else
-				for (auto ch = 0; ch < numChannels; ++ch)
-					for (auto s = 0; s < numSamples; ++s)
-						destBlock[ch][s] += modSignal[ch][s] * atten;
-		}
-		float** destBlock;
+		std::vector<float>& destBlock;
+		const ChannelSetup channelSetup;
 	};
 
 	/*
@@ -255,14 +277,16 @@ namespace modSys2 {
 			destinations(),
 			outValue(),
 			Fs(1)
-		{}
+		{
+		}
 		Modulator(const juce::String& mID) :
 			Identifiable(mID),
 			params(),
 			destinations(),
 			outValue(),
 			Fs(1)
-		{}
+		{
+		}
 		// SET
 		virtual void prepareToPlay(const int numChannels, const double sampleRate) {
 			if (outValue.size() != numChannels) {
@@ -272,13 +296,12 @@ namespace modSys2 {
 			}
 			Fs = static_cast<float>(sampleRate);
 		}
-		void addDestination(Parameter& dest, float atten = 1.f, bool bidirec = false) {
-			if (hasDestination(dest.id)) return;
-			destinations.push_back(std::make_shared<DestinationParameter>(dest.id, dest, atten, bidirec));
+		void addDestination(std::shared_ptr<Parameter>& dest, ChannelSetup channelSetup, float atten = 1.f, bool bidirec = false) {
+			addDestination(dest->id, dest->data(), channelSetup, atten, bidirec);
 		}
-		void addDestination(const juce::Identifier& dID, float** dest, float atten = 1.f, bool bidirec = false) {
+		void addDestination(const juce::Identifier& dID, std::vector<float>& destBlock, ChannelSetup channelSetup, float atten = 1.f, bool bidirec = false) {
 			if (hasDestination(dID)) return;
-			destinations.push_back(std::make_shared<DestinationStereo>(dID, dest, atten, bidirec));
+			destinations.push_back(std::make_shared<Destination>(dID, destBlock, channelSetup, atten, bidirec));
 		}
 		void removeDestination(const juce::Identifier& dID) {
 			for (auto d = 0; d < destinations.size(); ++d) {
@@ -301,11 +324,22 @@ namespace modSys2 {
 			getDestination(pID)->setValue(value);
 		}
 		virtual void processBlock(const juce::AudioBuffer<float>& audioBuffer, float** block, juce::AudioPlayHead::CurrentPositionInfo& playHead) = 0;
-		void processDestinations(const float** block, const int numChannels, const int numSamples) noexcept {
-			for (auto& destination : destinations)
-				destination->processBlock(block, numChannels, numSamples);
+		void processDestinations(float** block, const int numSamples) noexcept {
+			for (auto& destination : destinations) {
+				const auto channelSetup = destination->getChannelSetup();
+				destination->processBlock(block[channelSetup], numSamples);
+			}	
 		}
-		void storeOutValue(float** block, const int lastSample) {
+		void generateMidSide(float** block, const int numChannels, const int numSamples) noexcept {
+			if (numChannels != 2) return;
+			juce::FloatVectorOperations::copy(block[2], block[0], numSamples);
+			juce::FloatVectorOperations::copy(block[3], block[0], numSamples);
+			juce::FloatVectorOperations::add(block[2], block[1], numSamples);
+			juce::FloatVectorOperations::subtract(block[3], block[1], numSamples);
+			juce::FloatVectorOperations::multiply(block[2], .5f, numSamples);
+			juce::FloatVectorOperations::multiply(block[3], .5f, numSamples);
+		}
+		void storeOutValue(float** block, const int lastSample) noexcept {
 			for (auto ch = 0; ch < outValue.size(); ++ch)
 				outValue[ch].set(block[ch][lastSample]);
 		}
@@ -339,9 +373,15 @@ namespace modSys2 {
 					return true;
 			return false;
 		}
-		bool modulates(Modulator& other) const noexcept {
+		bool usesParameter(const Parameter& parameter) const noexcept {
 			for (const auto p : params)
-				if (other.hasDestination(p->id))
+				if (*p == parameter)
+					return true;
+			return false;
+		}
+		bool modulates(Modulator& other) const noexcept {
+			for (const auto d : destinations)
+				if (other.usesParameter(d->id))
 					return true;
 			return false;
 		}
@@ -364,9 +404,6 @@ namespace modSys2 {
 		void processBlock(const juce::AudioBuffer<float>& audioBuffer, float** block, juce::AudioPlayHead::CurrentPositionInfo&) override {
 			for (auto s = 0; s < audioBuffer.getNumSamples(); ++s)
 				block[0][s] = params[0]->get(s);
-			for (auto ch = 1; ch < audioBuffer.getNumChannels(); ++ch)
-				for (auto s = 0; s < audioBuffer.getNumSamples(); ++s)
-					block[ch][s] = block[0][s];
 			const auto lastSample = audioBuffer.getNumSamples() - 1;
 			storeOutValue(block, lastSample);
 		}
@@ -428,6 +465,7 @@ namespace modSys2 {
 				for (auto ch = 0; ch < numChannels; ++ch)
 					block[ch][s] += narrow * (mid - block[ch][s]);
 			}
+			generateMidSide(block, numChannels, numSamples);
 			storeOutValue(block, lastSample);
 		}
 	protected:
@@ -580,6 +618,7 @@ namespace modSys2 {
 					for (auto s = 0; s < numSamples; ++s)
 						block[ch][s] = block[0][s];
 			processWaveTable(block, numChannels, numSamples);
+			generateMidSide(block, numChannels, numSamples);
 			storeOutValue(block, lastSample);
 		}
 	protected:
@@ -609,7 +648,7 @@ namespace modSys2 {
 	};
 
 	/*
-	* a random modulator
+	* a randomized modulator (by lowpassing an edgy signal)
 	*/
 	class RandomModulator :
 		public Modulator
@@ -713,6 +752,7 @@ namespace modSys2 {
 			}
 			processWidth(block, biasValue, numChannels, numSamples);
 			processSmoothing(block, numChannels, numSamples);
+			generateMidSide(block, numChannels, numSamples);
 			storeOutValue(block, numSamples - 1);
 		}
 	protected:
@@ -775,6 +815,135 @@ namespace modSys2 {
 	};
 
 	/*
+	* a randomized modulator (1d perlin noise)
+	*/
+	class PerlinModulator :
+		public Modulator
+	{
+		enum { Sync, Rate, Octaves, Width };
+	public:
+		PerlinModulator(const juce::String& mID, const std::shared_ptr<Parameter>& syncParam,
+			const std::shared_ptr<Parameter>& rateParam, const std::shared_ptr<Parameter>& octavesParam,
+			const std::shared_ptr<Parameter>& widthParam,
+			const param::MultiRange& ranges, const int maxNumOctaves) :
+			Modulator(mID),
+			multiRange(ranges),
+			freeID(multiRange.getID("free")),
+			syncID(multiRange.getID("sync")),
+			seed(),
+			seedSize(1 << maxNumOctaves),
+			maxOctaves(maxNumOctaves),
+			phase(0), fsInv(0), gainAccum(1),
+			octaves(-1)
+		{
+			params.push_back(syncParam);
+			params.push_back(rateParam);
+			params.push_back(octavesParam);
+			params.push_back(widthParam);
+
+			seed.resize(seedSize + spline::Size, 0.f);
+			juce::Random rand;
+			for (auto s = 0; s < seedSize; ++s)
+				seed[s] = rand.nextFloat() * .8f; // .8f compensates for spline overshoot
+			for (auto s = seedSize; s < seed.size(); ++s)
+				seed[s] = seed[s - seedSize];
+		}
+		void prepareToPlay(const int numChannels, const double sampleRate) override {
+			Modulator::prepareToPlay(numChannels, sampleRate);
+			fsInv = 1.f / static_cast<float>(Fs);
+		}
+		void processBlock(const juce::AudioBuffer<float>& audioBuffer, float** block, juce::AudioPlayHead::CurrentPositionInfo& playHead) override {
+			auto numChannels = audioBuffer.getNumChannels();
+			numChannels = numChannels < 3 ? numChannels : 2;
+			const auto maxChannel = numChannels - 1;
+			const auto numSamples = audioBuffer.getNumSamples();
+			const auto lastSample = numSamples - 1;
+
+			const bool isFree = params[Sync]->get(0) < .5f;
+			setOctaves(juce::jlimit(0, maxOctaves, static_cast<int>(params[Octaves]->denormalized())));
+
+			if (isFree) {
+				const auto rateValue = juce::jlimit(0.f, 1.f, params[Rate]->get(0));
+				const auto rateInHz = multiRange(freeID).convertFrom0to1(rateValue);
+				const auto inc = rateInHz * fsInv;
+				synthesizePhase(block[maxChannel], inc, numSamples);
+				synthesizeRandSignal(block, numChannels, numSamples);
+			}
+			else {
+				const auto bpm = playHead.bpm;
+				const auto bps = bpm / 60.;
+				const auto quarterNoteLengthInSamples = Fs / bps;
+				const auto barLengthInSamples = quarterNoteLengthInSamples * 4.;
+				const auto ppq = playHead.ppqPosition * .25;
+				const auto rateValue = juce::jlimit(0.f, 1.f, params[Rate]->get(0));
+				const auto rateInHz = multiRange(syncID).convertFrom0to1(rateValue);
+				const auto inc = 1.f / (static_cast<float>(barLengthInSamples) * rateInHz);
+				const auto ppqCh = static_cast<float>(ppq) / rateInHz;
+				auto newPhase = (ppqCh - std::floor(ppqCh));
+				phase = newPhase;
+				synthesizePhase(block[maxChannel], inc, numSamples);
+				synthesizeRandSignal(block, numChannels, numSamples);
+			}
+			processWidth(block, numChannels, numSamples);
+			generateMidSide(block, numChannels, numSamples);
+			storeOutValue(block, numSamples - 1);
+		}
+	protected:
+		const param::MultiRange& multiRange;
+		const juce::Identifier& freeID, syncID;
+		std::vector<float> seed;
+		const int seedSize, maxOctaves;
+		float phase, fsInv, gainAccum;
+		int octaves;
+
+		void setOctaves(const int oct) noexcept {
+			if (octaves == oct) return;
+			octaves = oct;
+			gainAccum = 0.f;
+			for (auto o = 0; o < octaves; ++o) {
+				const auto scl = static_cast<float>(1 << o);
+				const auto gain = 1.f / scl;
+				gainAccum += gain;
+			}
+			gainAccum = 1.f / gainAccum;
+		}
+
+		inline void synthesizePhase(float* block, const float inc, const int numSamples) noexcept {
+			for (auto s = 0; s < numSamples; ++s) {
+				phase += inc;
+				if (phase >= seedSize)
+					phase -= seedSize;
+				block[s] = phase;
+			}
+		}
+		inline void synthesizeRandSignal(float** block, const int numChannels, const int numSamples) noexcept {
+			const auto maxChannel = numChannels - 1;
+			for (auto ch = 0; ch < numChannels; ++ch) {
+				auto offset = ch * seedSize * .5f;
+				for (auto s = 0; s < numSamples; ++s) {
+					auto noise = 0.f;
+					for (int o = 0; o < octaves; ++o) {
+						const auto scl = static_cast<float>(1 << o);
+						auto x = block[maxChannel][s] * scl + offset;
+						while (x >= seedSize)
+							x -= seedSize;
+						const auto gain = 1.f / scl;
+						noise += spline::process(seed.data(), x) * gain;
+					}
+					noise *= gainAccum;
+					block[ch][s] = noise;
+				}
+			}
+		}
+		inline void processWidth(float** block, const int numChannels, const int numSamples) noexcept {
+			const auto narrow = 1.f - params[Width]->get();
+			for (auto ch = 1; ch < numChannels; ++ch)
+				for (auto s = 1; s < numSamples; ++s)
+					block[ch][s] += narrow * (block[0][s] - block[ch][s]);
+		}
+	};
+
+	/*
 	* some identifiers used for serialization
 	*/
 	struct Type {
@@ -782,6 +951,7 @@ namespace modSys2 {
 			modSys("MODSYS"),
 			modulator("MOD"),
 			destination("DEST"),
+			channelSetup("channelSetup"),
 			id("id"),
 			atten("atten"),
 			bidirec("bidirec"),
@@ -790,6 +960,7 @@ namespace modSys2 {
 		const juce::Identifier modSys;
 		const juce::Identifier modulator;
 		const juce::Identifier destination;
+		const juce::Identifier channelSetup;
 		const juce::Identifier id;
 		const juce::Identifier atten;
 		const juce::Identifier bidirec;
@@ -826,11 +997,12 @@ namespace modSys2 {
 		{}
 		// SET
 		void prepareToPlay(const int numChannels, const int blockSize, const double sampleRate) {
-			block.setSize(numChannels, blockSize, false, false, false);
 			for (auto& p : parameters)
 				p->prepareToPlay(blockSize, sampleRate);
 			for (auto& m : modulators)
 				m->prepareToPlay(numChannels, sampleRate);
+			const auto channelCount = numChannels * numChannels;
+			block.setSize(channelCount, blockSize, false, false, false);
 		}
 		void setSmoothingLengthInSamples(const juce::Identifier& pID, float length) noexcept {
 			getParameter(pID)->setSmoothingLengthInSamples(length);
@@ -853,11 +1025,13 @@ namespace modSys2 {
 					const auto dValue = static_cast<float>(destChild.getProperty(type.atten));
 					const auto bidirec = destChild.getProperty(type.bidirec).toString() == "0" ? false : true;
 					const auto destParameter = getParameter(dID);
+					const auto channelSetup = static_cast<ChannelSetup>(static_cast<int>(destChild.getProperty(type.channelSetup, ChannelSetup::Left)));
 					if(destParameter != nullptr)
-						addDestinationParameter(mID, dID, dValue, bidirec);
+						addDestination(mID, dID, channelSetup, dValue, bidirec);
+					// what if destination not parameter??
+					// should non-parameter destinations be serializable?
 				}
 			}
-			DBG(apvts.state.toXmlString());
 		}
 		void getState(juce::AudioProcessorValueTreeState& apvts) {
 			// VALUETREE TO BINARY
@@ -879,6 +1053,7 @@ namespace modSys2 {
 					destChild.setProperty(type.id, d->id.toString(), nullptr);
 					destChild.setProperty(type.atten, d->getValue(), nullptr);
 					destChild.setProperty(type.bidirec, d->isBidirectional() ? 1 : 0, nullptr);
+					destChild.setProperty(type.channelSetup, static_cast<int>(d->getChannelSetup()), nullptr);
 					modChild.appendChild(destChild, nullptr);
 				}
 				modSysChild.appendChild(modChild, nullptr);
@@ -924,34 +1099,53 @@ namespace modSys2 {
 			modulators.push_back(std::make_shared<RandomModulator>(idString, syncP, rateP, biasP, widthP, smoothP, ranges));
 			return modulators[modulators.size() - 1];
 		}
+		std::shared_ptr<Modulator> addPerlinModulator(const juce::Identifier& syncPID, const juce::Identifier& ratePID,
+			const juce::Identifier& octavesPID, const juce::Identifier& widthPID,
+			const param::MultiRange& ranges, int maxOctaves, int idx) {
+			const auto syncP = getParameter(syncPID);
+			const auto rateP = getParameter(ratePID);
+			const auto octavesP = getParameter(octavesPID);
+			const auto widthP = getParameter(widthPID);
+			const juce::String idString("Perlin" + static_cast<juce::String>(idx));
+			modulators.push_back(std::make_shared<PerlinModulator>(idString, syncP, rateP, octavesP, widthP, ranges, maxOctaves));
+			return modulators[modulators.size() - 1];
+		}
 		// MODIFY / REPLACE
 		void selectModulator(const juce::Identifier& mID) { selectedModulator = getModulator(mID); }
-		void addDestinationParameter(const juce::Identifier& mID, const juce::Identifier& pID, const float atten = 1.f, const bool bidirec = false) {
-			auto param = getParameter(pID);
+		void addDestination(const juce::Identifier& mID, const juce::Identifier& dID, ChannelSetup channelSetup, const float atten = 1.f, const bool bidirec = false) {
+			auto param = getParameter(dID);
 			auto thisMod = getModulator(mID);
-
-			for (auto t = 0; t < modulators.size(); ++t) { // search for mod i wanna add a dest to
-				auto maybeThisMod = modulators[t];
-				if (maybeThisMod == thisMod)  // found it.
-					for (auto m = 0; m < modulators.size(); ++m) { // search for mod that has the parameter
-						auto otherMod = modulators[m];
-						if (otherMod->usesParameter(pID)) // found it
-							if (otherMod != thisMod) // does the parameter belong to another mod?
-							{
-								thisMod->addDestination(*param, atten, bidirec); // add dest
-								if (t > m) // swap if needed
-									std::swap(modulators[t], modulators[m]);
-								if (otherMod->modulates(*thisMod)) // remove conflicting dests from other mod
-									otherMod->removeDestinations(thisMod.get());
-								return;
-							}
-							else return;
-					}
-			} // parameter doesn't belong to any modulator, so just add
-			thisMod->addDestination(*param, atten, bidirec);
+			if (param != nullptr) { // destination belongs to a parameter
+				for (auto t = 0; t < modulators.size(); ++t) { // search for mod i wanna add a dest to
+					auto maybeThisMod = modulators[t];
+					if (maybeThisMod == thisMod)  // found it.
+						for (auto m = 0; m < modulators.size(); ++m) { // search for mod that has the parameter
+							auto otherMod = modulators[m];
+							if (otherMod->usesParameter(dID)) // found it
+								if (otherMod != thisMod) // does the parameter belong to another mod?
+								{
+									thisMod->addDestination(param, channelSetup, atten, bidirec); // add dest
+									if (t > m) // swap if needed
+										std::swap(modulators[t], modulators[m]);
+									if (otherMod->modulates(*thisMod)) // remove conflicting dests from other mod
+									{
+										otherMod->removeDestinations(thisMod.get());
+									}
+									return;
+								}
+								else return;
+						}
+				}
+				// destination's parameter doesn't belong to any modulator, so just add
+				thisMod->addDestination(param, channelSetup, atten, bidirec);
+				return;
+			}
 		}
-		void addDestinationStereo(const juce::Identifier& mID, const juce::Identifier& dID, float** destBlock, const float atten = 1.f) {
-			getModulator(mID)->addDestination(dID, destBlock, atten);
+		void addDestination(const juce::Identifier& mID, const juce::Identifier& dID, std::vector<float>& destBlock, ChannelSetup channelSetup, const float atten = 1.f, const bool bidirec = false) {
+				// destination is not a parameter, so add unchecked
+				auto thisMod = getModulator(mID);
+				thisMod->addDestination(dID, destBlock, channelSetup, atten, bidirec);
+				return;
 		}
 		void removeDestination(const juce::Identifier& mID, const juce::Identifier& dID) {
 			getModulator(mID)->removeDestination(dID);
@@ -963,10 +1157,9 @@ namespace modSys2 {
 			if (playHead) playHead->getCurrentPosition(curPosInfo);
 			for (auto& p : parameters) p.get()->processBlock(numSamples);
 			auto modsBlock = block.getArrayOfWritePointers();
-			auto modsBlockRead = block.getArrayOfReadPointers();
 			for (auto& m : modulators) {
 				m->processBlock(audioBuffer, modsBlock, curPosInfo);
-				m->processDestinations(modsBlockRead, numChannels, numSamples);
+				m->processDestinations(modsBlock, numSamples);
 			}
 			const auto lastSample = numSamples - 1;
 			for (auto& parameter : parameters) {
@@ -1003,9 +1196,9 @@ namespace modSys2 {
 	*
 	* destination: bias / weight
 	*
-	* if parameter smoothing not needed: parameter buffersize = 1
-	*	(a lot of the modulators don't need: less ram maybe?)
-	*
+	* rewrite parameter so has functions to give back min and max of range
+	*	then implement maxOctaves in processBlock of perlinMod to get from there
+	* 
 	* envelopeFollowerModulator
 	*	rewrite db to gain calculation so that it happens before parameter smoothing instead
 	*	add lookahead parameter
@@ -1016,12 +1209,15 @@ namespace modSys2 {
 	* randModulator
 	*	try rewrite with spline interpolator instead lowpass
 	* 
+	* perlinModulator
+	*	add method for calculating autogain spline overshoot
+	* 
 	* all wavy mods (especially temposync ones)
 	*	phase parameter
 	*
 	* editor
 	*	find more elegant way for vectorizing all modulatable parameters
-	* 
+	*	rather than making a ton of huge ass initializer lists, lol
 	*
 	*/
 }

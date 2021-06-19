@@ -212,7 +212,7 @@ namespace modSys2Editor {
 		public juce::Component,
 		public modSys2::Identifiable
 	{
-		ModulatorDragger(ModularTestAudioProcessor& p, const juce::String& mID, const std::vector<Parameter*>&& modulatables = {}) :
+		ModulatorDragger(ModularTestAudioProcessor& p, const juce::String& mID, std::vector<Parameter*>& modulatables) :
 			Identifiable(mID),
 			processor(p),
 			draggerfall(),
@@ -236,7 +236,7 @@ namespace modSys2Editor {
 		ModularTestAudioProcessor& processor;
 		juce::ComponentDragger draggerfall;
 		juce::Rectangle<int> bounds;
-		std::vector<Parameter*> modulatableParameters;
+		std::vector<Parameter*>& modulatableParameters;
 		Parameter* hoveredParameter;
 		bool selected;
 
@@ -257,7 +257,7 @@ namespace modSys2Editor {
 				const auto p = matrix->getParameter(hoveredParameter->id);
 				const auto pValue = processor.apvts.getRawParameterValue(p->id);
 				const auto atten = 1.f - *pValue;
-				matrix->addDestinationParameter(m->id, p->id, atten);
+				matrix->addDestination(m->id, p->id, modSys2::ChannelSetup::Left, atten, false);
 				processor.matrix.replaceUpdatedPtrWith(matrix);
 				hoveredParameter = nullptr;
 			}
@@ -382,5 +382,4 @@ namespace modSys2Editor {
 		}
 		JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(LFODisplay)
 	};
-
 }

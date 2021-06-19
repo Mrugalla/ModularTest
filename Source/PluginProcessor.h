@@ -3,10 +3,12 @@
 #include <JuceHeader.h>
 
 namespace param {
-	enum class ID { Macro0, Macro1, Macro2, Macro3, Depth,
-		ModulesMix, EnvFolGain, EnvFolAtk, EnvFolRls, EnvFolBias, EnvFolWdth, LFOSync,
-		LFORate, LFOWdth, LFOWaveTable, RandSync, RandRate,
-		RandBias, RandWdth, RandSmooth };
+	enum class ID { Macro0, Macro1, Macro2, Macro3, Depth, ModulesMix,
+		EnvFolGain, EnvFolAtk, EnvFolRls, EnvFolBias, EnvFolWdth,
+		LFOSync, LFORate, LFOWdth, LFOWaveTable,
+		RandSync, RandRate, RandBias, RandWdth, RandSmooth,
+		PerlinSync, PerlinRate, PerlinOctaves, PerlinWdth
+	};
 
 	static juce::String getName(ID i) {
 		switch (i) {
@@ -30,6 +32,10 @@ namespace param {
 		case ID::RandBias: return "RandBias";
 		case ID::RandWdth: return "RandWdth";
 		case ID::RandSmooth: return "RandSmooth";
+		case ID::PerlinSync: return "PerlinSync";
+		case ID::PerlinRate: return "PerlinRate";
+		case ID::PerlinOctaves: return "PerlinOctaves";
+		case ID::PerlinWdth: return "PerlinWdth";
 		default: return "";
 		}
 	}
@@ -249,6 +255,15 @@ namespace param {
 		parameters.push_back(createParameter(ID::RandBias, .5f));
 		parameters.push_back(createParameter(ID::RandWdth, 0.f));
 		parameters.push_back(createParameter(ID::RandSmooth, 1.f));
+
+		const auto octStr = [](float value, int) {
+			return juce::String(static_cast<int>(value)) + " oct";
+		};
+
+		parameters.push_back(createPBool(ID::PerlinSync, false, getSyncStr()));
+		parameters.push_back(createParameter(ID::PerlinRate, .5f, juce::NormalisableRange<float>(0.f, 1.f, 0.f), rateStr));
+		parameters.push_back(createParameter(ID::PerlinOctaves, 1.f, juce::NormalisableRange<float>(1.f, 8.f, 1.f), octStr));
+		parameters.push_back(createParameter(ID::PerlinWdth, 0.f));
 
 		return { parameters.begin(), parameters.end() };
 	}

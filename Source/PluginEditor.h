@@ -34,10 +34,15 @@ protected:
     modSys2Editor::ParameterExample randSyncP, randRateP, randBiasP, randWidthP, randSmoothP;
     modSys2Editor::LFODisplay randDisplay;
 
+    modSys2Editor::ParameterExample perlinSyncP, perlinRateP, perlinOctavesP, perlinWidthP;
+    modSys2Editor::LFODisplay perlinDisplay;
+
     juce::Label modulesLabel;
 
+    std::vector<modSys2Editor::Parameter*> modulatableParameters;
+
     modSys2Editor::ModulatorDragger macro0Dragger, macro1Dragger, macro2Dragger, macro3Dragger;
-    modSys2Editor::ModulatorDragger envFolDragger, lfoDragger, randDragger;
+    modSys2Editor::ModulatorDragger envFolDragger, lfoDragger, randDragger, perlinDragger;
 
     void paint(juce::Graphics&) override;
     void resized() override;

@@ -1,7 +1,7 @@
 #include "PluginProcessor.h"
 #include "PluginEditor.h"
 #include <functional>
-#define ResetAPVTS false
+#define ResetAPVTS true
 #define DebugRefCount false
 
 ModularTestAudioProcessor::ModularTestAudioProcessor()
@@ -54,6 +54,17 @@ ModularTestAudioProcessor::ModularTestAudioProcessor()
         param::getID(param::ID::RandWdth),
         param::getID(param::ID::RandSmooth),
         lfoFreeSyncRanges,
+        0
+    );
+
+    const auto maxOctaves = static_cast<int>(apvts.getParameter(param::getID(param::ID::PerlinOctaves))->getNormalisableRange().end);
+    matrix->addPerlinModulator(
+        param::getID(param::ID::PerlinSync),
+        param::getID(param::ID::PerlinRate),
+        param::getID(param::ID::PerlinOctaves),
+        param::getID(param::ID::PerlinWdth),
+        lfoFreeSyncRanges,
+        maxOctaves,
         0
     );
 #if DebugRefCount

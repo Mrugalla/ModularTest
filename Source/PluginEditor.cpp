@@ -37,15 +37,24 @@ ModularTestAudioProcessorEditor::ModularTestAudioProcessorEditor(ModularTestAudi
     randSmoothP(audioProcessor, param::getID(param::ID::RandSmooth), audioProcessor.getChannelCountOfBus(false, 0)),
     randDisplay(juce::String("Rand0"), audioProcessor.getChannelCountOfBus(false, 0)),
 
+    perlinSyncP(audioProcessor, param::getID(param::ID::PerlinSync), audioProcessor.getChannelCountOfBus(false, 0)),
+    perlinRateP(audioProcessor, param::getID(param::ID::PerlinRate), audioProcessor.getChannelCountOfBus(false, 0)),
+    perlinOctavesP(audioProcessor, param::getID(param::ID::PerlinOctaves), audioProcessor.getChannelCountOfBus(false, 0)),
+    perlinWidthP(audioProcessor, param::getID(param::ID::PerlinWdth), audioProcessor.getChannelCountOfBus(false, 0)),
+    perlinDisplay(juce::String("Perlin0"), audioProcessor.getChannelCountOfBus(false, 0)),
+
     modulesLabel("Modules", "Modules"),
 
-    macro0Dragger(audioProcessor, param::getID(param::ID::Macro0), { &depthP, &modulesMixP, &envFolGainP, &envFolAtkP, &envFolRlsP, &envFolBiasP, &envFolWdthP, &lfoSyncP, &lfoRateP, &lfoWdthP, &lfoWaveTableP, &randSyncP, &randRateP, &randBiasP, &randSmoothP, &randWidthP }),
-    macro1Dragger(audioProcessor, param::getID(param::ID::Macro1), { &depthP, &modulesMixP, &envFolGainP, &envFolAtkP, &envFolRlsP, &envFolBiasP, &envFolWdthP, &lfoSyncP, &lfoRateP, &lfoWdthP, &lfoWaveTableP, &randSyncP, &randRateP, &randBiasP, &randSmoothP, &randWidthP }),
-    macro2Dragger(audioProcessor, param::getID(param::ID::Macro2), { &depthP, &modulesMixP, &envFolGainP, &envFolAtkP, &envFolRlsP, &envFolBiasP, &envFolWdthP, &lfoSyncP, &lfoRateP, &lfoWdthP, &lfoWaveTableP, &randSyncP, &randRateP, &randBiasP, &randSmoothP, &randWidthP }),
-    macro3Dragger(audioProcessor, param::getID(param::ID::Macro3), { &depthP, &modulesMixP, &envFolGainP, &envFolAtkP, &envFolRlsP, &envFolBiasP, &envFolWdthP, &lfoSyncP, &lfoRateP, &lfoWdthP, &lfoWaveTableP, &randSyncP, &randRateP, &randBiasP, &randSmoothP, &randWidthP }),
-    envFolDragger(audioProcessor, juce::String("EnvFol0"), { &depthP, &modulesMixP, &envFolGainP, &envFolAtkP, &envFolRlsP, &envFolBiasP, &envFolWdthP, &lfoSyncP, &lfoRateP, &lfoWdthP, &lfoWaveTableP, &randSyncP, &randRateP, &randBiasP, &randSmoothP, &randWidthP }),
-    lfoDragger(audioProcessor, juce::String("LFO0"), { &depthP, &modulesMixP, &envFolGainP, &envFolAtkP, &envFolRlsP, &envFolBiasP, &envFolWdthP, &lfoSyncP, &lfoRateP, &lfoWdthP, &lfoWaveTableP, &randSyncP, &randRateP, &randBiasP, &randSmoothP, &randWidthP }),
-    randDragger(audioProcessor, juce::String("Rand0"), { &depthP, &modulesMixP, &envFolGainP, &envFolAtkP, &envFolRlsP, &envFolBiasP, &envFolWdthP, &lfoSyncP, &lfoRateP, &lfoWdthP, &lfoWaveTableP, &randSyncP, &randRateP, &randBiasP, &randSmoothP, &randWidthP })
+    modulatableParameters({ &depthP, &modulesMixP, &envFolGainP, &envFolAtkP, &envFolRlsP, &envFolBiasP, &envFolWdthP, &lfoSyncP, &lfoRateP, &lfoWdthP, &lfoWaveTableP, &randSyncP, &randRateP, &randBiasP, &randSmoothP, &randWidthP, &perlinSyncP, &perlinRateP, &perlinOctavesP, &perlinWidthP }),
+
+    macro0Dragger(audioProcessor, param::getID(param::ID::Macro0), modulatableParameters),
+    macro1Dragger(audioProcessor, param::getID(param::ID::Macro1), modulatableParameters),
+    macro2Dragger(audioProcessor, param::getID(param::ID::Macro2), modulatableParameters),
+    macro3Dragger(audioProcessor, param::getID(param::ID::Macro3), modulatableParameters),
+    envFolDragger(audioProcessor, juce::String("EnvFol0"), modulatableParameters),
+    lfoDragger(audioProcessor, juce::String("LFO0"), modulatableParameters),
+    randDragger(audioProcessor, juce::String("Rand0"), modulatableParameters),
+    perlinDragger(audioProcessor, juce::String("Perlin0"), modulatableParameters)
 {
     addAndMakeVisible(macrosLabel);
     macrosLabel.setJustificationType(juce::Justification::centred);
@@ -73,10 +82,14 @@ ModularTestAudioProcessorEditor::ModularTestAudioProcessorEditor(ModularTestAudi
     addAndMakeVisible(randSmoothP);
     addAndMakeVisible(randDisplay);
 
+    addAndMakeVisible(perlinSyncP); addAndMakeVisible(perlinRateP);
+    addAndMakeVisible(perlinOctavesP); addAndMakeVisible(perlinWidthP);
+    addAndMakeVisible(perlinDisplay);
+
     addAndMakeVisible(macro0Dragger); addAndMakeVisible(macro1Dragger);
     addAndMakeVisible(macro2Dragger); addAndMakeVisible(macro3Dragger);
     addAndMakeVisible(envFolDragger); addAndMakeVisible(lfoDragger);
-    addAndMakeVisible(randDragger);
+    addAndMakeVisible(randDragger); addAndMakeVisible(perlinDragger);
 
     setOpaque(true);
     setResizable(true, true);
@@ -175,6 +188,21 @@ void ModularTestAudioProcessorEditor::resized() {
     randWidthP.setBounds(maxQuadIn(juce::Rectangle<float>(x, y, moduleObjWidth, moduleHeight)).toNearestInt());
     x += moduleObjWidth;
     randSmoothP.setBounds(maxQuadIn(juce::Rectangle<float>(x, y, moduleObjWidth, moduleHeight)).toNearestInt());
+
+    x = modulesX;
+    y += moduleHeight;
+
+    perlinDragger.setQBounds(maxQuadIn(juce::Rectangle<float>(x, y, draggerWidth, moduleHeight)).toNearestInt());
+    x += moduleObjWidth;
+    perlinDisplay.setBounds(maxQuadIn(juce::Rectangle<float>(x, y, moduleObjWidth, moduleHeight)).toNearestInt());
+    x += moduleObjWidth;
+    perlinSyncP.setBounds(maxQuadIn(juce::Rectangle<float>(x, y, moduleObjWidth, moduleHeight)).toNearestInt());
+    x += moduleObjWidth;
+    perlinRateP.setBounds(maxQuadIn(juce::Rectangle<float>(x, y, moduleObjWidth, moduleHeight)).toNearestInt());
+    x += moduleObjWidth;
+    perlinOctavesP.setBounds(maxQuadIn(juce::Rectangle<float>(x, y, moduleObjWidth, moduleHeight)).toNearestInt());
+    x += moduleObjWidth;
+    perlinWidthP.setBounds(maxQuadIn(juce::Rectangle<float>(x, y, moduleObjWidth, moduleHeight)).toNearestInt());
 }
 
 void ModularTestAudioProcessorEditor::timerCallback() {
@@ -202,5 +230,9 @@ void ModularTestAudioProcessorEditor::timerCallback() {
     randBiasP.timerCallback(matrix); randWidthP.timerCallback(matrix);
     randSmoothP.timerCallback(matrix);
     randDisplay.timerCallback(matrix); randDragger.timerCallback(matrix);
+    
+    perlinSyncP.timerCallback(matrix); perlinRateP.timerCallback(matrix);
+    perlinOctavesP.timerCallback(matrix); perlinWidthP.timerCallback(matrix);
+    perlinDisplay.timerCallback(matrix); perlinDragger.timerCallback(matrix);
     //*/
 }
